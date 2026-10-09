@@ -63,3 +63,16 @@ def test_leaves_unrelated_text_and_short_numbers_alone() -> None:
 
     assert detector.detect("Order 42 is ready for pickup.") == []
 
+
+
+
+def test_detects_user_marked_custom_sensitive_value_exactly() -> None:
+    secret = "case phrase ZQX-731"
+    detector = PIIDetector(extra_values=(secret,))
+    text = f"Please keep {secret} confidential."
+
+    found = detector.detect(text)
+
+    assert len(found) == 1
+    assert found[0].entity_type == "CUSTOM_SENSITIVE"
+    assert text[found[0].start:found[0].end] == secret

@@ -82,3 +82,12 @@ def test_egress_guard_blocks_pii_embedded_in_a_json_key() -> None:
     else:
         raise AssertionError("The egress guard should block PII inside JSON keys")
 
+from veil.detection import PIIDetector
+from veil.token_vault import TokenVault
+
+
+def test_generated_token_cannot_match_the_phone_detector(monkeypatch) -> None:
+    monkeypatch.setattr("veil.token_vault.secrets.token_hex", lambda _: "0000000000")
+    token = TokenVault().tokenize("avery@example.test", "EMAIL")
+
+    assert PIIDetector().detect(token) == []

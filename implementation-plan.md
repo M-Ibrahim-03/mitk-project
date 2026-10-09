@@ -10,7 +10,7 @@ Do not ask an agent to build the whole product in one pass. Give it one phase pr
 
 ### Current handoff status
 
-Phases 0–5 and the judge-facing helpdesk story are implemented in this workspace. The prompts below document how the MVP was built and are useful for controlled changes or a fresh implementation. If continuing from this workspace, first use the handoff prompt below; do not rerun Phase 0 or overwrite the existing implementation. Latest focused suite: 26 tests passed; latest synthetic benchmark: 20/20 planted details detected, zero leakage, 18/18 counted token occurrences restored, p50 0.100 ms, p95 0.219 ms. Re-run on the judging machine before presenting machine-dependent latency.
+Phases 0–5 and Phase 6 tasks 6.1–6.4 are implemented in this workspace. The local agent now supports ticket lookup or free-form support intake; the user can list exact extra synthetic secrets for tokenization; the single-screen UI renders a responsive, pulsing timeline from actual workflow events. Do not rerun Phase 0 or overwrite the existing implementation. Latest full suite: 37 passed. Latest synthetic benchmark: 20/20 planted details detected, zero false positives, zero leakage, 20/20 token occurrences restored, p50 0.104 ms, p95 0.286 ms. Streamlit printed a startup URL at `http://127.0.0.1:8502`, but the shell's local HTTP probe could not connect; rehearse browser access on the actual judging machine before presenting.
 
 ```text
 Read context.md and implementation-plan.md before editing. The Veil MVP is already implemented. Inspect the current files and run the documented checks first. Do not recreate the scaffold or replace working files. Report the current test/benchmark status, then make only the specific follow-up change requested by the user. Keep synthetic-only data, no external services, and update context.md at the end.
@@ -22,11 +22,11 @@ This is the next implementation milestone. Phases 0–5 describe the existing MV
 
 ### Outcome and fixed decisions
 
-- A judge enters or edits one **synthetic** user request containing a ticket ID and sample contact details.
-- A deterministic local agent interprets the request, prepares a helpdesk tool call, and later formats an answer from the tool response. It must be labeled as a local demo agent; it is not a hosted LLM.
+- A judge enters or edits one **synthetic** free-form request plus sample contact details. A ticket ID selects lookup; otherwise the agent submits a general support request. The judge can list exact extra synthetic values to protect when they fall outside automatic recognizers.
+- A deterministic local agent selects a helpdesk action, prepares its tool call, and later formats an answer from the tool response. It must be labeled as a local demo agent; it is not a hosted LLM.
 - Every agent-to-tool call goes through `VeilGateway`. The agent cannot call `SimulatedHelpdeskTool` directly.
 - Veil replaces supported PII in the outgoing tool arguments with request-scoped tokens, checks the exact egress payload, and blocks before dispatch if anything unsafe remains.
-- The offline helpdesk looks up the synthetic ticket by its non-PII ticket ID. It does not need the contact details; it echoes tokenized contact context in its response so the return path can be demonstrated.
+- The offline helpdesk either looks up the synthetic ticket by its non-PII ticket ID or accepts a general support request. It echoes tokenized message/contact context so the return path can be demonstrated.
 - Veil restores the response only on the trusted path back to the agent. The agent produces the answer the UI shows to the user.
 - The primary screen presents exactly one workflow. Do not put the generic PII playground or a benchmark dashboard beside it. Keep benchmark evaluation available through the existing CLI and display only metrics from this run in the workflow receipt.
 - Use Python, Streamlit, the existing gateway, pytest, and the current `.venv`; do not add uv, a hosted model, cloud service, real helpdesk, or external API.
@@ -37,8 +37,8 @@ This is the next implementation milestone. Phases 0–5 describe the existing MV
 
 ```text
 Synthetic user request
-  → local agent receives request and chooses ticket lookup
-  → agent prepares tool arguments containing contact context
+  → local agent chooses ticket lookup or general support intake
+  → agent prepares tool arguments containing message and contact context
   → Veil detects and tokenizes selected PII
   → Veil verifies the exact tool name and payload
   → local helpdesk captures only the verified tokenized payload
@@ -67,9 +67,9 @@ Do not store the token vault or its original-to-token mapping in the UI trace. T
 
 Build a single, focused Streamlit story screen for one run at a time:
 
-1. **Request panel:** editable synthetic user message and an obvious “Fill with safe sample” control. Preload a fictional name, `.test` email, placeholder phone, and the known fictional ticket ID. Clearly label all values as synthetic. Require the user to confirm the sample is fictional before running if custom input is enabled.
+1. **Request panel:** editable synthetic user message, structured contact fields, and an optional list of exact extra synthetic values to protect. A ticket ID selects ticket lookup; without one, use general support intake. Clearly label all values as synthetic and explain the automatic detector limits.
 2. **Run control:** one primary `Run workflow` button. Clear stale run artifacts when input changes. Disable or guard duplicate submissions while a run is active.
-3. **Live journey:** show the ordered stages as a progress line or step cards: User → Agent → Veil → Safety check → Helpdesk → Veil restoration → Agent answer. Update the current stage from the event stream/callback while the synchronous workflow executes. Mark prior stages complete, the active stage visibly active, and future stages waiting. Use Streamlit-native status/progress elements plus a small static style layer; avoid adding a frontend framework.
+3. **Live journey:** show the ordered stages as responsive step cards: User → Agent → Veil → Safety check → Helpdesk → Veil restoration → Agent answer. Update each card from the event callback while the synchronous workflow executes. Mark prior stages complete, the active stage visibly active, and future stages waiting. Use a pulse only while a real operation is active, with reduced-motion support; do not add artificial sleeps or a frontend framework.
 4. **Boundary evidence:** at the Veil/helpdesk boundary, show the exact payload captured by the helpdesk, with detected PII represented as tokens. Beside it, show the helpdesk’s tokenized reply and Veil’s restored reply. These must come from the current `WorkflowRun`, not constants or reconstructed display data.
 5. **User result:** show the final answer returned by the local agent only after the restored response reached it.
 6. **Run receipt:** show run ID, egress pass/block, tool-call count, protected detection count, original-PII leakage count, restored-value count, Veil-added latency, and total workflow latency. Derive all values from the current run and captured boundary. Do not label a blocked call as a zero-leak success if the tool was never called; show “blocked before tool call.”
@@ -79,11 +79,13 @@ The animation should communicate movement across trust boundaries without preten
 
 ### Implementation tasks — execute in order, test first for each behavior
 
+**Progress:** Tasks 6.1–6.4 are complete, including follow-up work aligned with the user's broader target. The agent chooses ticket lookup or general support intake; users may supply exact extra synthetic values for tokenization. The single-screen page shows a responsive pulse animation driven only by actual operation events, exact captured helpdesk payload, restored response, and final agent answer. Focused tests pass; full suite: 37 passed. Benchmark: 20/20 planted instances detected/restored, zero false positives/leakage, p50 0.104 ms and p95 0.286 ms (7 cases). Streamlit printed `http://127.0.0.1:8502`, but a shell HTTP probe could not connect in this environment. Next: task 6.5 verify browser access and rehearse both paths on the judging machine; do not claim universal PII detection.
+
 #### 6.1 Specify and test the user-to-agent input
 
-- Add tests before modifying `veil/demo_agent.py` for valid ticket requests, missing/invalid ticket IDs, and supported synthetic requester details.
-- Replace the fixed-only `build_ticket_lookup_call()` path with a request-driven method. Use explicit, typed inputs rather than hidden module constants. Have the agent select the ticket lookup and construct its arguments, including the user message and structured requester context.
-- Keep parsing narrow and deterministic: support the documented synthetic ticket ID format and return a safe clarification/error for unsupported requests. Do not make the agent detector a second PII middleware; Veil remains responsible for PII detection.
+- Add tests before modifying `veil/demo_agent.py` for ticket requests, free-form messages, and supported synthetic requester details.
+- Use explicit, typed inputs rather than hidden module constants. Have the agent select ticket lookup when the message has a supported ID, otherwise prepare general support intake; both calls include the message and structured requester context.
+- Keep ticket parsing narrow and deterministic. Do not make the agent detector a second PII middleware; Veil remains responsible for automatic detection and optional exact user-marked values.
 - Add agent unit tests proving the selected tool, extracted ticket ID, forwarded user context, and final-answer formatting from a supplied response.
 
 **Gate:** agent logic accepts user data and prepares a tool call, but has no direct reference to the helpdesk implementation.
@@ -110,7 +112,7 @@ The animation should communicate movement across trust boundaries without preten
 
 #### 6.4 Build the event-driven single-workflow UI
 
-- Write/update Streamlit AppTests before changing `veil/demo.py`. Tests should submit custom synthetic input, click Run workflow, assert the returned answer, assert the ordered stage labels, and inspect the actual tool-bound payload stored for that run.
+- Write/update Streamlit AppTests before changing `veil/demo.py`. Tests should submit custom synthetic input with and without a ticket ID, include an exact user-marked secret, click Run workflow, assert the restored answer, ordered stage labels, animation styling, and actual tool-bound payload stored for that run.
 - Refactor the current two-tab page into one primary workflow view. Remove the PII playground tab from the judge-facing page; leave benchmark CLI and its documentation intact.
 - Render events as they are emitted using a callback or iterator consumed by the Streamlit script. Keep orchestration logic independent of Streamlit so it remains unit-testable.
 - Implement queued/active/complete/blocked/failed visuals. On success, the final answer appears after restoration and agent completion. On block, mark downstream steps “not reached,” show the reason in plain language, and report zero helpdesk calls.
@@ -130,21 +132,23 @@ The animation should communicate movement across trust boundaries without preten
 
 ### Phase 6 acceptance checklist
 
-- [ ] Judge can enter a synthetic request and see the agent choose and prepare a ticket tool call.
+- [x] Judge can enter a synthetic request with or without a ticket ID and see the agent prepare a ticket or general support tool call.
+- [x] Exact extra synthetic values listed by the user are tokenized in the request and restored in an echoed response.
 - [ ] The only route from agent to helpdesk is through Veil.
-- [ ] The animated timeline is driven by actual workflow events, has no fake success step, and stops at the actual failure boundary.
-- [ ] The displayed helpdesk payload is the deep-copied payload captured at the helpdesk boundary.
+- [x] The animated timeline is driven by actual workflow events, has no fake success step, and stops at the actual failure boundary.
+- [x] The displayed helpdesk payload is the deep-copied payload captured at the helpdesk boundary.
 - [ ] No protected originals occur in that captured payload; the synthetic ticket ID still finds its ticket.
 - [ ] The tool response contains tokens; the agent receives the restored response and creates the visible final answer.
-- [ ] A blocked request produces zero helpdesk calls and no fabricated reply.
+- [x] A blocked request produces zero helpdesk calls and no fabricated reply.
 - [ ] Vault state is cleared on success and failure; run traces and logs contain no raw PII other than the synthetic request displayed locally.
-- [ ] The primary UI shows only this workflow and its run-specific proof/receipt; no competing playground or benchmark dashboard distracts from it.
-- [ ] Tests pass, the app starts with the documented direct Python command, and the judging machine rehearsal succeeds.
+- [x] The primary UI shows only this workflow and its run-specific proof/receipt; no competing playground or benchmark dashboard distracts from it.
+- [x] Tests pass and the app starts with the documented direct Python command.
+- [ ] Local browser access and the success/blocked judging rehearsal are verified on the actual judging machine (shell localhost probe was unavailable in this environment).
 
 ### Copy/paste prompt for the next implementation session
 
 ```text
-Read context.md and implementation-plan.md first. Continue the existing Veil project; do not recreate the MVP. Implement only Phase 6, starting with task 6.1. The user specifically wants the workflow itself to work, and the UI to animate and prove the exact one workflow that ran. Keep the app local and deterministic with synthetic data only. No uv, hosted LLM, external API, real helpdesk, or cloud service. The path must be user → local agent → VeilGateway → captured simulated helpdesk payload → tokenized reply → Veil restoration → agent answer → UI. The agent may not call the helpdesk directly. Treat the displayed tool payload as proof only when copied from the actual helpdesk capture. Emit UI progress events only after real operations; do not use fake sleeps or fabricate success. Fail closed on residual PII or gateway errors. Keep raw synthetic PII out of logs and audit data; clear the request-scoped vault on every exit. For each behavior, add/update tests first, implement, run `.venv\Scripts\python.exe -m pytest --last-failed`, and report the exact result. After each task, update context.md. Do not skip acceptance gates or start UI polish before the workflow integration tests pass.
+Read context.md and implementation-plan.md first. Continue the existing Veil project; do not recreate the MVP. Phase 6 tasks 6.1–6.4 are implemented. Preserve the goal: user enters a free-form synthetic message; local agent selects ticket lookup or general support intake; every tool call passes through VeilGateway; the simulated helpdesk captures the exact protected payload and returns tokens; Veil restores known values for the trusted agent; and the single-screen UI animates only actual workflow events. Automatic detection covers selected types only; exact extra synthetic secrets can be listed by the user. Never claim universal PII detection. Keep the app local with synthetic data only; no uv, hosted LLM, external API, real helpdesk, or cloud service. Do not bypass the gateway, interpolate user text into HTML, add artificial sleeps, or fabricate success. Fail closed on residual PII or gateway errors. Keep raw values out of logs/audit events and clear the request-scoped vault on every exit. Next task is 6.5: verify browser access and rehearse both request paths on the judging machine; shell localhost access failed in the current environment although Streamlit printed its URL. For each behavior, write tests first, implement, run `.venv\Scripts\python.exe -m pytest --last-failed`, and report the exact result. Update context.md after each task.
 ```
 
 ## Initial setup
@@ -279,8 +283,8 @@ Prepare the finished MVP for a hackathon judging demo. Review the full repo agai
 
 ## Suggested 2-minute demo narration
 
-1. In **Helpdesk ticket story**, introduce the fictional student asking for a ticket update. Explain that the ticket ID is enough for the local helpdesk simulation to find the record.
-2. Click **Run ticket demo**. Follow the four on-screen steps: agent prepares the call, Veil protects contact details, helpdesk finds the ticket, Veil restores the reply.
-3. Open **Show the proof and technical details**. Show the exact request received by the simulated helpdesk: the ticket ID remains, while name, email, and phone are temporary labels. Compare the tool's tokenized reply with the restored response.
-4. Click **Show blocked request example**. Explain that the example intentionally injects a first-scan miss, then Veil's egress verifier blocks the request before the helpdesk receives it.
-5. If time permits, use the **PII playground** benchmark scorecard to report detection, leakage, restoration, and latency, with the synthetic-sample limitation.
+1. Enter an arbitrary synthetic support message without a ticket ID. Add one exact synthetic secret to the custom-protection field and include it in the message; enter synthetic name, email, and phone values.
+2. Click **Run workflow**. Follow the pulsing, event-driven stages: agent prepares the support call, Veil protects and verifies it, helpdesk receives tokens, and Veil restores the response.
+3. Open **Show the proof from this workflow**. Point to **What the helpdesk actually received** and show that the custom secret and contact values are tokens. Then compare the tokenized reply with the restored message and the agent answer.
+4. Click **Show blocked example**. Explain that the example intentionally injects a first-scan miss and Veil's egress check blocks before the helpdesk is called.
+5. To show ticket lookup instead, reset the request and include `TICKET-DEMO-1042`. If judges ask about measured detection or latency, run the synthetic evaluation CLI and state its corpus limitations.

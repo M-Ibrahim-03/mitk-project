@@ -1,4 +1,4 @@
-"""Streamlit entry point for Veil's local judge-facing demos."""
+"""Streamlit entry point for the local, event-backed Veil judging workflow."""
 
 from __future__ import annotations
 
@@ -7,40 +7,205 @@ from typing import Any
 
 import streamlit as st
 
-from veil.demo_flow import TicketDemoRun, run_ticket_demo
-from veil.evaluation import BENCHMARK_PATH, evaluate_cases
-from veil.gateway import VeilGateway
-from veil.mock_tool import SimulatedTool
+from veil.demo_agent import (
+    DEMO_REQUESTER,
+    DEMO_USER_REQUEST,
+    AgentRequest,
+    RequesterDetails,
+)
+from veil.demo_flow import WorkflowEvent, run_ticket_demo
 
 
-SCENARIO_LABELS = {
-    "nested_contact_request": "A contact request with several details",
-    "duplicate_email_and_context_name": "The same detail appears more than once",
-    "natural_language_with_non_lexicon_name": "A message with a name and account ID",
-    "plain_safe_payload": "A request with no personal details",
-    "unformatted_phone_and_labelled_name": "A name and phone number in a message",
-    "punctuation_and_case_variants": "Details beside punctuation",
-    "array_text_and_formatted_phone": "A list of messages with personal details",
+STAGE_DEFINITIONS = (
+    ("agent", "1. Agent prepares the helpdesk request"),
+    ("veil", "2. Veil checks and protects the request"),
+    ("helpdesk", "3. Helpdesk receives the protected request"),
+    ("restore", "4. Veil restores the reply"),
+)
+
+STAGE_STYLE = """
+<style>
+.veil-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 0.5rem 0 1rem;
 }
+.veil-stage {
+  min-height: 8.5rem;
+  padding: 1rem;
+  border: 1px solid #344054;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #111827, #1d2939);
+  color: #f2f4f7;
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
+}
+.veil-stage:hover { transform: translateY(-3px); }
+.veil-stage.veil-complete {
+  border-color: #32d583;
+  background: linear-gradient(145deg, #062c25, #123b34);
+}
+.veil-stage.veil-active {
+  border-color: #84adff;
+  background: linear-gradient(145deg, #172554, #312e81);
+  animation: veilPulse 1.35s ease-in-out infinite;
+}
+.veil-stage.veil-blocked {
+  border-color: #f97066;
+  background: linear-gradient(145deg, #3b111b, #571b24);
+}
+.veil-stage.veil-failed {
+  border-color: #fdb022;
+  background: linear-gradient(145deg, #3b250b, #573613);
+}
+.veil-stage-number {
+  color: #b2ccff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.veil-stage-title { display: block; margin: 0.5rem 0; font-weight: 700; }
+.veil-stage-status { color: #d0d5dd; font-size: 0.9rem; }
+@keyframes veilPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(132, 173, 255, 0.16); }
+  50% { box-shadow: 0 0 0 7px rgba(132, 173, 255, 0.28); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .veil-stage, .veil-stage:hover { animation: none; transition: none; transform: none; }
+}
+@media (max-width: 800px) {
+  .veil-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .veil-flow { grid-template-columns: 1fr; }
+}
+</style>
+"""
 
 
-def _clear_demo_result() -> None:
-    """Avoid showing results for a sample that the user has since changed."""
-    st.session_state.pop("veil_demo_result", None)
+def _clear_trace() -> None:
+    st.session_state.pop("veil_ticket_demo", None)
 
 
-def _display_percent(value: object) -> str:
-    return "Not available" if value is None else f"{value}%"
+def _reset_form() -> None:
+    st.session_state["veil_message"] = DEMO_USER_REQUEST
+    st.session_state["veil_name"] = DEMO_REQUESTER["name"]
+    st.session_state["veil_email"] = DEMO_REQUESTER["email"]
+    st.session_state["veil_phone"] = DEMO_REQUESTER["phone"]
+    st.session_state["veil_custom_sensitive_values"] = ""
+    _clear_trace()
 
 
-def _save_ticket_demo(show_blocked_path: bool) -> None:
-    run = run_ticket_demo(show_blocked_path=show_blocked_path)
+def _event_state(event: WorkflowEvent, state: dict[str, str]) -> None:
+    if event.stage in {"request_received", "agent_planning", "tool_call_prepared"}:
+        state["agent"] = "complete" if event.status == "complete" else event.status
+    elif event.stage in {"privacy_scan", "egress_gate"}:
+        state["veil"] = event.status
+        if event.stage == "egress_gate" and event.status == "complete":
+            state["veil"] = "complete"
+    elif event.stage == "helpdesk":
+        state["helpdesk"] = event.status
+    elif event.stage in {"tool_response", "response_restore", "agent_response"}:
+        state["restore"] = "complete" if event.status == "complete" else event.status
+
+
+def _render_timeline(events: list[dict[str, str]], target: Any | None = None) -> None:
+    statuses = {key: "queued" for key, _ in STAGE_DEFINITIONS}
+    for event in events:
+        _event_state(
+            WorkflowEvent(
+                run_id=event["run_id"],
+                stage=event["stage"],
+                status=event["status"],  # type: ignore[arg-type]
+                message=event["message"],
+            ),
+            statuses,
+        )
+
+    container = target.container() if target is not None else st.container()
+    with container:
+        cards = []
+        for index, (key, title) in enumerate(STAGE_DEFINITIONS, start=1):
+            status = statuses[key]
+            icon = {
+                "complete": "✓",
+                "active": "↻",
+                "blocked": "⛔",
+                "failed": "!",
+                "queued": "○",
+            }[status]
+            readable = {
+                "complete": "Complete",
+                "active": "In progress",
+                "blocked": "Blocked",
+                "failed": "Failed",
+                "queued": "Not reached",
+            }[status]
+            display_title = (
+                "3. Helpdesk not reached"
+                if key == "helpdesk" and status == "queued"
+                else title
+            )
+            cards.append(
+                f"<div class='veil-stage veil-{status}' role='listitem' aria-live='polite'>"
+                f"<span class='veil-stage-number'>Step {index} · {icon}</span>"
+                f"<span class='veil-stage-title'>{display_title}</span>"
+                f"<span class='veil-stage-status'>{readable}</span></div>"
+            )
+        st.markdown(
+            STAGE_STYLE + "<div class='veil-flow' role='list'>" + "".join(cards) + "</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _save_ticket_demo(*, show_blocked_path: bool, progress: Any) -> None:
+    request = AgentRequest(
+        message=st.session_state["veil_message"],
+        requester=RequesterDetails(
+            name=st.session_state["veil_name"],
+            email=st.session_state["veil_email"],
+            phone=st.session_state["veil_phone"],
+        ),
+    )
+    safe_events: list[dict[str, str]] = []
+
+    def on_event(event: WorkflowEvent) -> None:
+        safe_events.append(
+            {
+                "run_id": event.run_id,
+                "stage": event.stage,
+                "status": event.status,
+                "message": event.message,
+            }
+        )
+        _render_timeline(safe_events, progress)
+
+    try:
+        additional_sensitive_values = tuple(
+            value.strip()
+            for value in st.session_state["veil_custom_sensitive_values"].splitlines()
+            if value.strip()
+        )
+        run = run_ticket_demo(
+            request=request,
+            show_blocked_path=show_blocked_path,
+            additional_sensitive_values=additional_sensitive_values,
+            on_event=on_event,
+        )
+    except ValueError as error:
+        _clear_trace()
+        st.error(str(error))
+        return
+
     st.session_state["veil_ticket_demo"] = {
+        "run_id": run.run_id,
         "user_request": run.user_request,
         "agent_call": {
             "tool_name": run.agent_call.tool_name,
             "payload": run.agent_call.payload,
         },
+        "events": safe_events,
         "result": run.result.to_dict(),
         "tool_payload": run.tool_payload,
         "agent_answer": run.agent_answer,
@@ -52,314 +217,120 @@ def _show_ticket_result(saved: dict[str, Any]) -> None:
     result = saved["result"]
     audit = result["audit"]
     st.subheader("What happened")
+    _render_timeline(saved["events"])
 
     if audit["status"] == "allowed" and audit["leakage_count"] == 0:
-        steps = st.columns(4)
-        steps[0].markdown("**1. Agent prepares a ticket lookup**")
-        steps[1].markdown("**2. Veil protects personal details**")
-        steps[2].markdown("**3. Helpdesk finds the ticket**")
-        steps[3].markdown("**4. Veil restores the reply**")
         st.success(
-            "The tool never saw the original details. Veil restored them for the agent."
+            "The helpdesk received temporary labels instead of the original contact details. "
+            "Veil restored them before the agent answered."
         )
-        metric_columns = st.columns(3)
-        metric_columns[0].metric("Details protected", audit["detection_count"])
-        metric_columns[1].metric("Original details sent to tool", audit["leakage_count"])
-        metric_columns[2].metric("Ticket status", result["restored_response"]["ticket"]["status"])
-        st.markdown("**Answer the student sees**")
+        columns = st.columns(3)
+        columns[0].metric("Details protected", audit["detection_count"])
+        columns[1].metric("Original details sent to helpdesk", audit["leakage_count"])
+        columns[2].metric("Veil processing time", f"{audit['added_latency_ms']:.3f} ms")
+        st.markdown("**Answer the user sees**")
         st.info(saved["agent_answer"])
-    else:
-        steps = st.columns(4)
-        steps[0].markdown("**1. Agent prepares a ticket lookup**")
-        steps[1].markdown("**2. Veil checks the outgoing request**")
-        steps[2].markdown("**3. Helpdesk was not called**")
-        steps[3].markdown("**4. Veil keeps the request blocked**")
-        st.error("Veil stopped the request before the helpdesk tool ran.")
-        st.write(
-            "For this teaching example, the first scan is made to miss an email. "
-            "Veil's outgoing safety check catches it and blocks the call."
-        )
+    elif audit["status"] == "blocked":
+        st.error("Veil blocked the request. The helpdesk was not called.")
         st.metric("Helpdesk calls made", 0)
+        if audit.get("blocked_reason"):
+            st.caption("Veil could not confirm that the outgoing request was safe.")
+    else:
+        st.error("The workflow could not complete. No answer was created.")
 
-    with st.expander("Show the proof and technical details"):
-        st.markdown("**1. What the local agent prepared**")
-        st.code(
-            json.dumps(saved["agent_call"], indent=2, ensure_ascii=False),
-            language="json",
-        )
-        st.markdown("**2. Exact request received by the helpdesk tool**")
+    with st.expander("Show the proof from this workflow"):
+        st.markdown("**What the local agent prepared**")
+        st.code(json.dumps(saved["agent_call"], indent=2, ensure_ascii=False), language="json")
+        st.markdown("**What the helpdesk actually received**")
         st.code(
             json.dumps(saved["tool_payload"], indent=2, ensure_ascii=False)
             if saved["tool_payload"] is not None
-            else "The helpdesk tool was not called.",
+            else "The helpdesk was not reached, so it received no request.",
             language="json",
         )
-
         if result["tool_response"] is not None:
-            st.markdown("**3. Helpdesk reply before Veil restored the labels**")
-            st.code(
-                json.dumps(result["tool_response"], indent=2, ensure_ascii=False),
-                language="json",
-            )
-            st.markdown("**4. Reply returned to the agent after restoration**")
-            st.code(
-                json.dumps(result["restored_response"], indent=2, ensure_ascii=False),
-                language="json",
-            )
-
+            st.markdown("**Helpdesk reply before restoration**")
+            st.code(json.dumps(result["tool_response"], indent=2, ensure_ascii=False), language="json")
+            st.markdown("**Reply returned to the trusted agent**")
+            st.code(json.dumps(result["restored_response"], indent=2, ensure_ascii=False), language="json")
         if result["detections"]:
             st.markdown("**Details Veil detected**")
             st.dataframe(result["detections"], width="stretch", hide_index=True)
-        if saved["show_blocked_path"]:
-            st.caption(
-                "The blocked path uses a demo-only simulated first-scan miss. "
-                "It does not send data to a real service."
-            )
+        st.caption(
+            "This is a local synthetic-data simulation. Temporary labels are reversible "
+            "tokens held in memory for this workflow; they are not encryption."
+        )
 
 
-def _show_helpdesk_story() -> None:
-    from veil.demo_agent import DEMO_USER_REQUEST
-
-    st.header("Campus IT helpdesk story")
+def _show_helpdesk_workflow() -> None:
+    st.header("Try the campus helpdesk workflow")
     st.write(
-        "A student asks an agent to check a support ticket. The ticket number lets "
-        "the helpdesk find the answer; it does not need the student's contact details."
+        "Enter a made-up message and contact details. The local agent will choose "
+        "a ticket lookup when it finds a ticket ID, or submit a general support request. "
+        "The screen shows exactly what the simulated helpdesk receives."
     )
-    st.markdown("**Made-up request**")
-    st.info(DEMO_USER_REQUEST)
-    st.caption(
-        "The agent and helpdesk are local simulations. All names and contact details "
-        "are fictional; no real message or ticket is sent."
-    )
+    st.caption("Use synthetic data only. Nothing is sent to an external service.")
 
-    action_columns = st.columns(2)
-    if action_columns[0].button("Run ticket demo", type="primary"):
-        st.session_state.pop("veil_demo_result", None)
-        _save_ticket_demo(show_blocked_path=False)
-    if action_columns[1].button("Show blocked request example"):
-        st.session_state.pop("veil_demo_result", None)
-        _save_ticket_demo(show_blocked_path=True)
+    st.text_area(
+        "Your message (a ticket ID is optional)",
+        key="veil_message",
+        on_change=_clear_trace,
+        height=100,
+    )
+    st.caption(
+        "With a ticket ID, the agent looks up that ticket. Without one, the agent "
+        "submits your message as a general support request."
+    )
+    st.text_area(
+        "Other sensitive values to protect (optional, one exact value per line)",
+        key="veil_custom_sensitive_values",
+        on_change=_clear_trace,
+        height=80,
+        help="Use this for synthetic secrets outside the automatic email, phone, ID, and name checks. Include each value in your message too.",
+    )
+    details = st.columns(3)
+    details[0].text_input("Synthetic name", key="veil_name", on_change=_clear_trace)
+    details[1].text_input("Synthetic email", key="veil_email", on_change=_clear_trace)
+    details[2].text_input("Synthetic phone", key="veil_phone", on_change=_clear_trace)
+
+    buttons = st.columns(3)
+    run_clicked = buttons[0].button("Run workflow", type="primary")
+    blocked_clicked = buttons[1].button("Show blocked example")
+    buttons[2].button("Reset demo", on_click=_reset_form)
+    if run_clicked or blocked_clicked:
+        _clear_trace()
+        progress = st.empty()
+        _save_ticket_demo(show_blocked_path=blocked_clicked, progress=progress)
 
     saved = st.session_state.get("veil_ticket_demo")
     if saved:
         _show_ticket_result(saved)
 
-    with st.expander("How this demo protects the information"):
-        st.markdown(
-            "1. The agent creates a ticket lookup request.\n"
-            "2. Veil replaces the detected name, email, and phone with temporary labels.\n"
-            "3. The helpdesk receives the ticket number and those labels, then looks up the ticket.\n"
-            "4. Veil restores labels in the reply before the agent answers."
-        )
-        st.caption(
-            "A real tool that needs an email address to search would need a trusted "
-            "service boundary. A temporary label alone cannot replace that tool's lookup key."
-        )
 
-
-def _show_pii_playground() -> None:
-    st.header("Try other synthetic examples")
-    st.write("Explore how Veil handles selected personal details in different payloads.")
-    cases = json.loads(BENCHMARK_PATH.read_text(encoding="utf-8"))
-    case_by_label = {
-        SCENARIO_LABELS.get(case["name"], case["name"].replace("_", " ")): case
-        for case in cases
-    }
-    scenario_label = st.selectbox(
-        "1. Choose a made-up example",
-        list(case_by_label),
-        on_change=_clear_demo_result,
-    )
-    scenario = case_by_label[scenario_label]
-    default_payload = json.dumps(scenario["payload"], indent=2, ensure_ascii=False)
-    payload_key = f"veil_payload_json_{scenario['name']}"
-    with st.expander("Optional: inspect or edit the sample data"):
-        st.caption("Only use made-up information in this local demo.")
-        st.text_area(
-            "Sample data in JSON format",
-            value=default_payload,
-            height=200,
-            key=payload_key,
-            on_change=_clear_demo_result,
-        )
-
-    if st.button("Protect this sample", type="primary"):
-        st.session_state.pop("veil_ticket_demo", None)
-        _run_playground_sample(st.session_state.get(payload_key, default_payload))
-
-    saved = st.session_state.get("veil_demo_result")
-    if saved:
-        _show_playground_result(saved)
-
-    st.divider()
-    _show_benchmark()
-
-
-def _run_playground_sample(payload_json: str) -> None:
-    st.session_state.pop("veil_demo_result", None)
-    try:
-        original_payload = json.loads(payload_json)
-    except json.JSONDecodeError:
-        st.error("This sample is not valid JSON. Check the optional data editor and try again.")
-        return
-
-    simulated_tool = SimulatedTool()
-    gateway = VeilGateway(simulated_tool=simulated_tool)
-    task = gateway.start_task()
-    try:
-        result = gateway.call_tool(task, "synthetic_demo_tool", original_payload)
-    except Exception:
-        st.error("Veil could not safely check this sample, so it did not continue.")
-        return
-    finally:
-        gateway.close_task(task)
-
-    actual_tool_payload = (
-        simulated_tool.received[-1].payload if simulated_tool.received else None
-    )
-    st.session_state["veil_demo_result"] = {
-        "original_payload": original_payload,
-        "actual_tool_payload": actual_tool_payload,
-        "result": result.to_dict(),
-    }
-
-
-def _show_playground_result(saved: dict[str, Any]) -> None:
-    result = saved["result"]
-    audit = result["audit"]
-    st.subheader("Your result")
-
-    protected = audit["status"] == "allowed" and audit["leakage_count"] == 0
-    if protected:
-        st.success("Your sample is protected.")
-        if audit["detection_count"]:
-            st.caption(
-                "No detected originals reached the simulated tool. Veil replaced "
-                "them with temporary labels and restored them in the reply."
-            )
-        else:
-            st.caption(
-                "Veil did not find any of the personal detail types this demo checks for."
-            )
-    elif audit["status"] == "blocked":
-        st.error("Veil stopped this request because it could not confirm it was safe.")
-        st.caption("The simulated tool was not called.")
-    else:
-        st.error("Veil found an issue while checking what would be sent to the tool.")
-
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("Details detected", audit["detection_count"])
-    metric_columns[1].metric("Detected originals sent", audit["leakage_count"])
-    metric_columns[2].metric("Details restored", audit["restored_value_count"])
-    metric_columns[3].metric("Time added", f"{audit['added_latency_ms']:.3f} ms")
-
-    with st.expander("See the request and reply details"):
-        st.write(
-            "The first box is the sample you gave Veil. The second is exactly what "
-            "the simulated tool received."
-        )
-        request_column, tool_column = st.columns(2)
-        with request_column:
-            st.markdown("**Your sample**")
-            st.code(
-                json.dumps(saved["original_payload"], indent=2, ensure_ascii=False),
-                language="json",
-            )
-        with tool_column:
-            st.markdown("**What the simulated tool received**")
-            st.code(
-                json.dumps(saved["actual_tool_payload"], indent=2, ensure_ascii=False)
-                if saved["actual_tool_payload"] is not None
-                else "No request was sent.",
-                language="json",
-            )
-
-        response_column, restored_column = st.columns(2)
-        with response_column:
-            st.markdown("**The tool's reply before Veil restored details**")
-            st.code(
-                json.dumps(result["tool_response"], indent=2, ensure_ascii=False),
-                language="json",
-            )
-        with restored_column:
-            st.markdown("**The reply returned to the agent**")
-            st.code(
-                json.dumps(result["restored_response"], indent=2, ensure_ascii=False),
-                language="json",
-            )
-
-        st.markdown("**What Veil noticed**")
-        if result["detections"]:
-            st.dataframe(result["detections"], width="stretch", hide_index=True)
-        else:
-            st.write("No selected personal detail types were found in this sample.")
-
-
-def _show_benchmark() -> None:
-    st.header("How Veil did on sample tests")
-    st.write(
-        "These checks use made-up examples to measure what Veil spots, blocks, "
-        "and restores."
-    )
-    if st.button("Run sample tests"):
-        st.session_state["veil_benchmark"] = evaluate_cases()
-
-    benchmark = st.session_state.get("veil_benchmark")
-    if not benchmark:
-        st.caption("Run the checks to see the results.")
-        return
-
-    first_row = st.columns(4)
-    first_row[0].metric(
-        "Detection",
-        _display_percent(benchmark["detection_recall_percent"]),
-        help="How many planted personal details Veil found in these examples.",
-    )
-    first_row[1].metric("False alarms", benchmark["false_positive_count"])
-    first_row[2].metric(
-        "Originals sent to tool",
-        benchmark["leakage_count"],
-        help="How many planted original values appeared in the simulated tool's request.",
-    )
-    first_row[3].metric(
-        "Correctly restored",
-        _display_percent(benchmark["restoration_accuracy_percent"]),
-    )
-
-    second_row = st.columns(3)
-    second_row[0].metric(
-        "Median processing time", f"{benchmark['added_latency_p50_ms']} ms"
-    )
-    second_row[1].metric(
-        "95th percentile time", f"{benchmark['added_latency_p95_ms']} ms"
-    )
-    second_row[2].metric("Test examples", benchmark["case_count"])
-    st.caption(
-        "Small synthetic test set only. These results do not prove that Veil can "
-        "find every kind of personal information."
-    )
-
-
-st.set_page_config(page_title="Veil | Privacy demo", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Veil | Privacy workflow", page_icon="🛡️", layout="wide")
 st.title("Veil")
-st.subheader("Keep personal details out of agent tool requests")
+st.subheader("A privacy layer between an AI agent and its tools")
 st.info(
-    "This demo uses made-up examples and local simulations. It runs on this computer "
-    "and does not call an external AI service or real tool."
+    "Follow one local workflow: user → agent → Veil → simulated helpdesk → Veil → agent. "
+    "All contact details are synthetic; no external AI or helpdesk is used."
 )
 
-helpdesk_tab, playground_tab = st.tabs(["Helpdesk ticket story", "PII playground"])
-with helpdesk_tab:
-    _show_helpdesk_story()
-with playground_tab:
-    _show_pii_playground()
+for key, value in {
+    "veil_message": DEMO_USER_REQUEST,
+    "veil_custom_sensitive_values": "",
+    "veil_name": DEMO_REQUESTER["name"],
+    "veil_email": DEMO_REQUESTER["email"],
+    "veil_phone": DEMO_REQUESTER["phone"],
+}.items():
+    st.session_state.setdefault(key, value)
 
-with st.expander("What do the words on this page mean?"):
+_show_helpdesk_workflow()
+
+with st.expander("What does Veil do?"):
     st.markdown(
-        "- **Temporary labels:** short names that stand in for detected details while "
-        "the request is with the simulated tool. Repeated details reuse the same label.\n"
-        "- **Restored reply:** Veil puts the original made-up details back only when "
-        "the reply returns to the trusted agent.\n"
-        "- **Detection limit:** this demo checks selected emails, phone numbers, "
-        "fictional names, and demo student IDs. Name detection is the least complete."
+        "The local agent prepares a request. Veil checks it, replaces selected personal "
+        "details with temporary tokens, and verifies the outgoing payload. The simulated "
+        "helpdesk sees that exact tokenized request. Veil restores known tokens only "
+        "on the trusted path back to the agent. This small demo cannot guarantee detection "
+        "of every kind of personal information."
     )

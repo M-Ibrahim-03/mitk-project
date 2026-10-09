@@ -17,7 +17,7 @@ class TokenVault:
         if existing is not None:
             return existing
 
-        token = f"[[{entity_type}:{secrets.token_hex(5).upper()}]]"
+        token = f"[[{entity_type}:V{secrets.token_hex(5).upper()}]]"
         self._value_to_token[value] = token
         self._token_to_value[token] = value
         return token

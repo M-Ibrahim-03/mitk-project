@@ -1,8 +1,11 @@
 import tempfile
 from pathlib import Path
 
+import pytest
 
-def test_streamlit_demo_completes_a_protected_tool_call(monkeypatch) -> None:
+
+@pytest.fixture
+def demo_app(monkeypatch):
     project_root = Path(__file__).resolve().parent.parent
     local_temp = project_root / "work" / "streamlit-temp"
     local_temp.mkdir(parents=True, exist_ok=True)
@@ -12,173 +15,73 @@ def test_streamlit_demo_completes_a_protected_tool_call(monkeypatch) -> None:
 
     from streamlit.testing.v1 import AppTest
 
-    app_test = AppTest.from_file(str(project_root / "veil" / "demo.py")).run(
-        timeout=15
+    return AppTest.from_file(str(project_root / "veil" / "demo.py"))
+
+
+def test_custom_user_request_runs_through_veil_and_shows_actual_tool_payload(demo_app):
+    app_test = demo_app.run(timeout=15)
+    assert not app_test.exception
+
+    app_test.text_area[0].set_value(
+        "Please review this case phrase ZQX-731 for Riley Sample."
     )
-    next(
-        button for button in app_test.button if button.label == "Protect this sample"
-    ).click().run(timeout=15)
+    app_test.text_area[1].set_value("case phrase ZQX-731")
+    app_test.text_input[0].set_value("Riley Sample")
+    app_test.text_input[1].set_value("riley@example.test")
+    app_test.text_input[2].set_value("111-222-3333")
+    app_test.run(timeout=15)
+    next(button for button in app_test.button if button.label == "Run workflow").click().run(timeout=15)
 
     assert not app_test.exception
-    demo_result = app_test.session_state["veil_demo_result"]
-    result = demo_result["result"]
-    assert result["audit"]["status"] == "allowed"
-    assert result["audit"]["leakage_count"] == 0
-    assert result["restored_response"]["echo"] == demo_result["original_payload"]
+    run = app_test.session_state["veil_ticket_demo"]
+    assert run["result"]["audit"]["status"] == "allowed"
+    assert [event["stage"] for event in run["events"] if event["status"] == "complete"] == [
+        "request_received", "agent_planning", "tool_call_prepared", "privacy_scan",
+        "egress_gate", "helpdesk", "tool_response", "response_restore", "agent_response",
+    ]
+    assert run["agent_call"]["tool_name"] == "submit_support_request"
+    for original in (
+        "Riley Sample", "riley@example.test", "111-222-3333", "case phrase ZQX-731"
+    ):
+        assert original not in repr(run["tool_payload"])
+    assert "Riley Sample" in run["agent_answer"]
+    assert "case phrase ZQX-731" in run["agent_answer"]
+    assert any("What the helpdesk actually received" in item.value for item in app_test.markdown)
+    rendered = "\n".join(item.value for item in app_test.markdown)
+    assert "veil-flow" in rendered
+    assert "veil-complete" in rendered
+    assert "@keyframes veilPulse" in rendered
+    assert "prefers-reduced-motion" in rendered
+    labels = rendered
+    assert "1. Agent prepares the helpdesk request" in labels
+    assert "2. Veil checks and protects the request" in labels
+    assert "3. Helpdesk receives the protected request" in labels
+    assert "4. Veil restores the reply" in labels
+    assert app_test.tabs == []
 
 
-def test_streamlit_demo_explains_the_result_in_plain_language(monkeypatch) -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    local_temp = project_root / "work" / "streamlit-temp"
-    local_temp.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("TEMP", str(local_temp))
-    monkeypatch.setenv("TMP", str(local_temp))
-    monkeypatch.setattr(tempfile, "tempdir", str(local_temp))
+def test_editing_request_clears_old_workflow_trace(demo_app):
+    app_test = demo_app.run(timeout=15)
+    next(button for button in app_test.button if button.label == "Run workflow").click().run(timeout=15)
+    assert "veil_ticket_demo" in app_test.session_state
 
-    from streamlit.testing.v1 import AppTest
+    app_test.text_area[0].set_value("Please check ticket TICKET-DEMO-1042; new request.").run(timeout=15)
 
-    app_test = AppTest.from_file(str(project_root / "veil" / "demo.py")).run(
-        timeout=15
-    )
-    protect_button = next(
-        button
-        for button in app_test.button
-        if button.label == "Protect this sample"
-    )
-    protect_button.click().run(timeout=15)
-
-    assert not app_test.exception
-    assert app_test.success[0].value.startswith("Your sample is protected.")
-    assert any("No detected originals reached the simulated tool" in item.value
-               for item in app_test.caption)
+    assert "veil_ticket_demo" not in app_test.session_state
 
 
-def test_streamlit_demo_shows_benchmark_as_a_readable_scorecard(monkeypatch) -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    local_temp = project_root / "work" / "streamlit-temp"
-    local_temp.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("TEMP", str(local_temp))
-    monkeypatch.setenv("TMP", str(local_temp))
-    monkeypatch.setattr(tempfile, "tempdir", str(local_temp))
-
-    from streamlit.testing.v1 import AppTest
-
-    app_test = AppTest.from_file(str(project_root / "veil" / "demo.py")).run(
-        timeout=15
-    )
-    benchmark_button = next(
-        button for button in app_test.button if button.label == "Run sample tests"
-    )
-    benchmark_button.click().run(timeout=15)
+def test_blocked_workflow_marks_helpdesk_not_reached(demo_app):
+    app_test = demo_app.run(timeout=15)
+    next(button for button in app_test.button if button.label == "Show blocked example").click().run(timeout=15)
 
     assert not app_test.exception
-    metric_labels = {metric.label for metric in app_test.metric}
-    assert {
-        "Detection",
-        "False alarms",
-        "Originals sent to tool",
-        "Correctly restored",
-        "Median processing time",
-        "Test examples",
-    }.issubset(metric_labels)
-    assert app_test.session_state["veil_benchmark"]["case_count"] == 7
-    assert any("small synthetic test set" in item.value.lower()
-               for item in app_test.caption)
-
-
-def test_switching_sample_loads_its_own_example_data(monkeypatch) -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    local_temp = project_root / "work" / "streamlit-temp"
-    local_temp.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("TEMP", str(local_temp))
-    monkeypatch.setenv("TMP", str(local_temp))
-    monkeypatch.setattr(tempfile, "tempdir", str(local_temp))
-
-    from streamlit.testing.v1 import AppTest
-
-    app_test = AppTest.from_file(str(project_root / "veil" / "demo.py")).run(
-        timeout=15
-    )
-    app_test.text_area[0].set_value('{"note": "my edited example"}').run(timeout=15)
-    app_test.selectbox[0].select("The same detail appears more than once").run(
-        timeout=15
-    )
-
-    assert not app_test.exception
-    assert "riley@example.test" in app_test.text_area[0].value
-    assert "my edited example" not in app_test.text_area[0].value
-
-
-def test_helpdesk_demo_shows_protected_tool_call_and_restored_agent_answer(
-    monkeypatch,
-) -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    local_temp = project_root / "work" / "streamlit-temp"
-    local_temp.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("TEMP", str(local_temp))
-    monkeypatch.setenv("TMP", str(local_temp))
-    monkeypatch.setattr(tempfile, "tempdir", str(local_temp))
-
-    from streamlit.testing.v1 import AppTest
-    from veil.demo_agent import DEMO_REQUESTER
-    from veil.helpdesk import DEMO_TICKET_ID
-
-    app_test = AppTest.from_file(str(project_root / "veil" / "demo.py")).run(
-        timeout=15
-    )
-    run_button = next(
-        button for button in app_test.button if button.label == "Run ticket demo"
-    )
-    run_button.click().run(timeout=15)
-
-    assert not app_test.exception
-    demo = app_test.session_state["veil_ticket_demo"]
-    assert demo["result"]["audit"]["status"] == "allowed"
-    assert demo["result"]["audit"]["leakage_count"] == 0
-    assert DEMO_TICKET_ID in repr(demo["tool_payload"])
-    for original in DEMO_REQUESTER.values():
-        assert original not in repr(demo["tool_payload"])
-    assert demo["result"]["tool_response"]["requester"]["email"].startswith(
-        "[[EMAIL:"
-    )
-    assert demo["result"]["restored_response"]["requester"] == DEMO_REQUESTER
-    assert "Maya Example" in demo["agent_answer"]
-    assert "maya@example.test" in demo["agent_answer"]
-    assert any(
-        "The tool never saw the original details" in item.value
-        for item in app_test.success
-    )
-    visible_steps = "\n".join(item.value for item in app_test.markdown)
-    assert "1. Agent prepares a ticket lookup" in visible_steps
-    assert "2. Veil protects personal details" in visible_steps
-    assert "3. Helpdesk finds the ticket" in visible_steps
-    assert "4. Veil restores the reply" in visible_steps
-
-
-def test_helpdesk_demo_has_a_visible_fail_closed_example(monkeypatch) -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    local_temp = project_root / "work" / "streamlit-temp"
-    local_temp.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("TEMP", str(local_temp))
-    monkeypatch.setenv("TMP", str(local_temp))
-    monkeypatch.setattr(tempfile, "tempdir", str(local_temp))
-
-    from streamlit.testing.v1 import AppTest
-
-    app_test = AppTest.from_file(str(project_root / "veil" / "demo.py")).run(
-        timeout=15
-    )
-    next(
-        button
-        for button in app_test.button
-        if button.label == "Show blocked request example"
-    ).click().run(timeout=15)
-
-    assert not app_test.exception
-    demo = app_test.session_state["veil_ticket_demo"]
-    assert demo["result"]["audit"]["status"] == "blocked"
-    assert demo["tool_payload"] is None
-    assert demo["result"]["tool_response"] is None
-    assert any("Veil stopped the request" in item.value for item in app_test.error)
-    visible_steps = "\n".join(item.value for item in app_test.markdown)
-    assert "3. Helpdesk was not called" in visible_steps
+    run = app_test.session_state["veil_ticket_demo"]
+    assert run["result"]["audit"]["status"] == "blocked"
+    assert run["tool_payload"] is None
+    assert run["agent_answer"] is None
+    assert run["events"][-1]["stage"] == "egress_gate"
+    assert run["events"][-1]["status"] == "blocked"
+    assert all(event["stage"] != "helpdesk" for event in run["events"])
+    visible = "\n".join(item.value for item in app_test.markdown)
+    assert "Helpdesk not reached" in visible
+    assert any("helpdesk was not called" in item.value.lower() for item in app_test.error)

@@ -57,3 +57,19 @@ def test_demo_can_show_verifier_blocking_before_tool_dispatch() -> None:
     assert demo.result.audit.egress_verified is False
     assert demo.tool_payload is None
     assert demo.agent_answer is None
+
+
+
+def test_helpdesk_accepts_free_form_support_request_and_echoes_protected_fields() -> None:
+    tool = SimulatedHelpdeskTool()
+    payload = {
+        "user_message": "Please review [[CUSTOM_SENSITIVE:VTOKEN]].",
+        "requester": {"name": "[[PERSON:VTOKEN]]", "email": "[[EMAIL:VTOKEN]]"},
+    }
+
+    response = tool.call("submit_support_request", payload)
+
+    assert tool.received[0].payload == payload
+    assert response["support_request"]["status"] == "received"
+    assert response["requester"] == payload["requester"]
+    assert response["message_echo"] == payload["user_message"]

@@ -26,14 +26,27 @@ class SimulatedHelpdeskTool(SimulatedTool):
         captured = deepcopy(payload)
         self.received.append(CapturedToolCall(tool_name, captured))
 
-        if tool_name != "lookup_helpdesk_ticket" or not isinstance(payload, dict):
+        if not isinstance(payload, dict):
+            return {"error": "unsupported_request"}
+
+        requester = payload.get("requester", {})
+        protected_requester = deepcopy(requester) if isinstance(requester, dict) else {}
+        if tool_name == "submit_support_request":
+            message = payload.get("user_message", "")
+            return {
+                "support_request": {
+                    "status": "received",
+                    "reference_id": "HD-DEMO-0001",
+                },
+                "requester": protected_requester,
+                "message_echo": message if isinstance(message, str) else "",
+            }
+
+        if tool_name != "lookup_helpdesk_ticket":
             return {"error": "unsupported_request"}
 
         ticket_id = payload.get("ticket_id")
         ticket_details = DEMO_TICKETS.get(ticket_id) if isinstance(ticket_id, str) else None
-        requester = payload.get("requester", {})
-        protected_requester = deepcopy(requester) if isinstance(requester, dict) else {}
-
         if ticket_details is None:
             return {
                 "error": "ticket_not_found",

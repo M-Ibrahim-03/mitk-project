@@ -62,21 +62,36 @@ class PIIDetector:
     """Find selected PII types using deterministic local patterns."""
 
     _priority = {
+        "CUSTOM_SENSITIVE": 6,
         "EMAIL": 5,
         "STUDENT_ID": 4,
         "PHONE_NUMBER": 3,
         "PERSON": 2,
     }
 
-    def __init__(self, extra_names: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        extra_names: tuple[str, ...] = (),
+        extra_values: tuple[str, ...] = (),
+    ) -> None:
         names = (*SYNTHETIC_NAME_LEXICON, *extra_names)
         self._name_patterns = tuple(
             (name, re.compile(rf"(?<!\w){re.escape(name)}(?!\w)", re.IGNORECASE))
             for name in names
         )
+        self._custom_value_patterns = tuple(
+            (value, re.compile(re.escape(value)))
+            for value in dict.fromkeys(value for value in extra_values if value)
+        )
 
     def detect(self, text: str, field_hint: str = "") -> list[Detection]:
         candidates: list[Detection] = []
+
+        for _, pattern in self._custom_value_patterns:
+            for match in pattern.finditer(text):
+                candidates.append(
+                    Detection(match.start(), match.end(), "CUSTOM_SENSITIVE", 1.0)
+                )
 
         for match in EMAIL_RE.finditer(text):
             candidates.append(Detection(match.start(), match.end(), "EMAIL", 0.99))
