@@ -1,7 +1,7 @@
 # Veil Project Context
 
 Last updated: 2026-10-09
-Project status: MVP implemented and verified
+Project status: MVP implemented, demo UI improved, and verified
 Timebox: 24-hour hackathon MVP
 
 ## 1. Project objective
@@ -116,10 +116,16 @@ Every coding agent must:
 - Recorded evaluation snapshot: `benchmark-results.md`.
 - User-facing source bundle is available at `outputs/veil-mvp-source.zip` (22 files; `.venv` and scratch files excluded; ZIP integrity checked).
 - No decision is needed from the user before beginning local setup.
+- The project folder is now `mitk-project` after the user renamed the root and cloned it to another system.
+- Updated the Streamlit demo to guide reviewers through choosing a sample, protecting it, and reading a plain-language result. Technical request/response JSON is now optional in an expander; changing the sample clears stale results and loads that sample's own editable payload.
+- Replaced the raw benchmark JSON view with readable metrics for detection, false alarms, originals sent, restoration, p50/p95 processing time, and sample count. The screen clearly states that this is a small synthetic test set.
+- Added three UI behavior tests and `pytest.ini` (`testpaths = tests`) so pytest does not collect duplicate tests from the source bundle under `outputs/`.
+- Verification after the UI update: `uv run --no-project --python .\\.venv\\Scripts\\python.exe python -m pytest -q` → **21 passed**; `python -m veil.evaluation` → 20/20 planted details detected, 0 false alarms, 0 leakage, 20/20 restored, p50 0.094 ms, p95 0.237 ms across 7 cases; `pip check` → no broken requirements.
+- `uv` was installed into this workspace's ignored `.venv` for verification. In this restricted Windows environment, its cache must point to `work/uv-cache`; the regular `uv run pytest --last-failed` form is not usable without project metadata, so the verified invocation uses `--no-project` and the existing venv Python explicitly. `uv` is not installed globally on a fresh clone.
 
 ### Next action
 
-MVP build and verification are complete. Any follow-up should begin by rereading this file and updating the scope/status here. Likely optional follow-ups are increasing benchmark diversity, adding a trusted optional NER adapter in a permitted runtime, or rehearsing the live demo. Do not present the current 20-instance synthetic benchmark as proof of universal coverage.
+The guided UI and benchmark scorecard are implemented and verified. Next, rehearse the presentation flow on the judging computer and consider adding a safe, clearly labeled fail-closed demo scenario. Increase benchmark diversity before making broader detection claims. Do not present the current 20-instance synthetic benchmark as proof of universal coverage.
 
 ## 10. Decision/progress log
 
@@ -129,3 +135,4 @@ MVP build and verification are complete. Any follow-up should begin by rereading
 - 2026-10-09: Created `.venv` with bundled Python 3.12.14. Installing into the venv initially hit a restricted temp-folder issue; using `work/pip-tmp` and `work/pip-cache` resolved it. Installed base requirements; `pip check` and core imports pass.
 - 2026-10-09: Completed the gateway, mock tool, egress verification, trusted-path restoration, Streamlit walkthrough, seven-case synthetic benchmark, README, and benchmark snapshot. Added structured name-field context support and egress checks for JSON keys/tool name. Final automated suite: 18 passed; no broken package requirements.
 - 2026-10-09: Packaged the source and handoff docs in `outputs/veil-mvp-source.zip`; verified the ZIP opens and all 22 archived files pass integrity checks.
+- 2026-10-09: Reworked the Streamlit screen for nontechnical reviewers: guided three-step flow, simpler sample names, optional advanced JSON/details, plain-language safety status, and a benchmark scorecard. Added tests for the result explanation, scorecard labels, and loading the correct sample after switching. Configured pytest to collect only the main `tests/` folder because the packaged source copy caused duplicate-module collection errors. Verification: 21 tests pass; the synthetic benchmark reports 20/20 detection/restoration and zero leakage/false alarms.

@@ -9,7 +9,8 @@ Veil is a local-first hackathon MVP that protects synthetic personal information
 - Reuse of the same token for repeated values inside one task.
 - Egress verification of payload values, object keys, and tool name. A failed verification blocks the simulated tool call.
 - A local mock tool that captures exactly what it receives and echoes a response for restoration.
-- A Streamlit walkthrough and a labelled synthetic benchmark for detection, false positives, leakage, restoration, and latency.
+- A guided, three-step Streamlit demo for nontechnical reviewers, with technical payload details available on demand.
+- A plain-language benchmark scorecard for detection, false alarms, leakage, restoration, and processing time.
 
 Person-name recognition uses context patterns and a small fictional-name lexicon. It is less comprehensive than a full NLP NER model. The project keeps its baseline pure Python because the current Windows execution environment blocks spaCy's compiled extension under its Application Control policy. Veil does not bypass that policy.
 
