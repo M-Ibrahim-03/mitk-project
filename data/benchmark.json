@@ -1,0 +1,90 @@
+[
+  {
+    "name": "nested_contact_request",
+    "payload": {
+      "recipient": "avery@example.test",
+      "message": "Please ask Avery Example to call +91 00000 00000.",
+      "account": {
+        "student_id": "STU-DEMO-00127",
+        "backup_phone": "+1 202-555-0100"
+      }
+    },
+    "truth": [
+      {"path": "$.recipient", "value": "avery@example.test", "entity_type": "EMAIL"},
+      {"path": "$.message", "value": "Avery Example", "entity_type": "PERSON"},
+      {"path": "$.message", "value": "+91 00000 00000", "entity_type": "PHONE_NUMBER"},
+      {"path": "$.account.student_id", "value": "STU-DEMO-00127", "entity_type": "STUDENT_ID"},
+      {"path": "$.account.backup_phone", "value": "+1 202-555-0100", "entity_type": "PHONE_NUMBER"}
+    ]
+  },
+  {
+    "name": "duplicate_email_and_context_name",
+    "payload": {
+      "contact_email": "riley@example.test",
+      "note": "Customer name: Riley Sample. Send the receipt to riley@example.test.",
+      "metadata": ["STU-DEMO-00420", "Call +91 11111 11111"]
+    },
+    "truth": [
+      {"path": "$.contact_email", "value": "riley@example.test", "entity_type": "EMAIL"},
+      {"path": "$.note", "value": "Riley Sample", "entity_type": "PERSON"},
+      {"path": "$.note", "value": "riley@example.test", "entity_type": "EMAIL"},
+      {"path": "$.metadata[0]", "value": "STU-DEMO-00420", "entity_type": "STUDENT_ID"},
+      {"path": "$.metadata[1]", "value": "+91 11111 11111", "entity_type": "PHONE_NUMBER"}
+    ]
+  },
+  {
+    "name": "natural_language_with_non_lexicon_name",
+    "payload": {
+      "prompt": "Customer name: Taylor Fictional. Their email is taylor@example.test and account is STU-DEMO-00731."
+    },
+    "truth": [
+      {"path": "$.prompt", "value": "Taylor Fictional", "entity_type": "PERSON"},
+      {"path": "$.prompt", "value": "taylor@example.test", "entity_type": "EMAIL"},
+      {"path": "$.prompt", "value": "STU-DEMO-00731", "entity_type": "STUDENT_ID"}
+    ]
+  },
+  {
+    "name": "plain_safe_payload",
+    "payload": {
+      "query": "Find the public product manual for model ZX-42.",
+      "limit": 3,
+      "include_archived": false
+    },
+    "truth": []
+  },
+  {
+    "name": "unformatted_phone_and_labelled_name",
+    "payload": {
+      "text": "Name = Casey Test. Call me at 0000000000."
+    },
+    "truth": [
+      {"path": "$.text", "value": "Casey Test", "entity_type": "PERSON"},
+      {"path": "$.text", "value": "0000000000", "entity_type": "PHONE_NUMBER"}
+    ]
+  },
+  {
+    "name": "punctuation_and_case_variants",
+    "payload": {
+      "note": "(Avery+Demo@example.test), account: stu-demo-04321."
+    },
+    "truth": [
+      {"path": "$.note", "value": "Avery+Demo@example.test", "entity_type": "EMAIL"},
+      {"path": "$.note", "value": "stu-demo-04321", "entity_type": "STUDENT_ID"}
+    ]
+  },
+  {
+    "name": "array_text_and_formatted_phone",
+    "payload": {
+      "messages": [
+        "My name is Morgan Placeholder.",
+        "Contact: demo_user@example.test",
+        "Mobile 000-000-0000"
+      ]
+    },
+    "truth": [
+      {"path": "$.messages[0]", "value": "Morgan Placeholder", "entity_type": "PERSON"},
+      {"path": "$.messages[1]", "value": "demo_user@example.test", "entity_type": "EMAIL"},
+      {"path": "$.messages[2]", "value": "000-000-0000", "entity_type": "PHONE_NUMBER"}
+    ]
+  }
+]
