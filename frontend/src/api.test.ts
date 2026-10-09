@@ -7,24 +7,20 @@ afterEach(() => {
 });
 
 describe("local workflow API", () => {
-  it("creates a run once with the user's message and synthetic requester fields", async () => {
+  it("creates a run with only the user's message", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ run_id: "local-run-1", status: "queued" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const created = await createRun({
-      message: "Please check my ticket.",
-      requester: { name: "Riley Sample", email: "riley@example.test", phone: "111-222-3333" },
-    });
+    const created = await createRun({ message: "Please check my ticket." });
 
     expect(created.run_id).toBe("local-run-1");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       message: "Please check my ticket.",
-      requester: { email: "riley@example.test" },
     });
   });
 

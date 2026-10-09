@@ -2,12 +2,6 @@ export type RunStatus = "queued" | "running" | "complete" | "blocked" | "failed"
 
 export interface DemoRunRequest {
   message: string;
-  requester: {
-    name: string;
-    email: string;
-    phone: string;
-  };
-  additional_sensitive_values?: string[];
 }
 
 export interface WorkflowEvent {
@@ -22,6 +16,7 @@ export interface WorkflowEvent {
 export interface WorkflowSnapshot {
   run_id: string;
   status: RunStatus;
+  agent_mode?: "deterministic" | "gemini";
   events: WorkflowEvent[];
   event_count: number;
   tool_payload: unknown;
@@ -34,6 +29,7 @@ export interface WorkflowSnapshot {
 interface CreatedRun {
   run_id: string;
   status: "queued";
+  agent_mode?: "deterministic" | "gemini";
 }
 
 async function readJson<T>(response: Response): Promise<T> {

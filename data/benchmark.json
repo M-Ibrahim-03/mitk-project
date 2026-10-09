@@ -86,5 +86,148 @@
       {"path": "$.messages[1]", "value": "demo_user@example.test", "entity_type": "EMAIL"},
       {"path": "$.messages[2]", "value": "000-000-0000", "entity_type": "PHONE_NUMBER"}
     ]
+  },
+  {
+    "name": "unicode_obfuscation_and_upi_id",
+    "payload": {
+      "message": "UPI ID: riley.sample@demo-bank; alternate riley@\u200bexample.test"
+    },
+    "truth": [
+      {"path": "$.message", "value": "riley.sample@demo-bank", "entity_type": "UPI_ID"},
+      {"path": "$.message", "value": "riley@\u200bexample.test", "entity_type": "EMAIL"}
+    ]
+  },
+  {
+    "name": "email_structured_contact_field",
+    "payload": {"requester": {"contact_email": "avery+demo@example.test"}},
+    "truth": [{"path": "$.requester.contact_email", "value": "avery+demo@example.test", "entity_type": "EMAIL"}]
+  },
+  {
+    "name": "email_repeated_in_free_text",
+    "payload": {"message": "Send a copy to riley.sample@example.test and confirm riley.sample@example.test."},
+    "truth": [
+      {"path": "$.message", "value": "riley.sample@example.test", "entity_type": "EMAIL"},
+      {"path": "$.message", "value": "riley.sample@example.test", "entity_type": "EMAIL"}
+    ]
+  },
+  {
+    "name": "phone_international_format",
+    "payload": {"note": "Callback number: +91 00000 00000"},
+    "truth": [{"path": "$.note", "value": "+91 00000 00000", "entity_type": "PHONE_NUMBER"}]
+  },
+  {
+    "name": "phone_unformatted_with_context",
+    "payload": {"requester": {"phone": "Phone: 0000000000"}},
+    "truth": [{"path": "$.requester.phone", "value": "0000000000", "entity_type": "PHONE_NUMBER"}]
+  },
+  {
+    "name": "person_name_context_not_in_lexicon",
+    "payload": {"message": "Customer name: Taylor Fictional. Please reply soon."},
+    "truth": [{"path": "$.message", "value": "Taylor Fictional", "entity_type": "PERSON"}]
+  },
+  {
+    "name": "person_name_structured_field",
+    "payload": {"requester": {"full_name": "Casey Test"}},
+    "truth": [{"path": "$.requester.full_name", "value": "Casey Test", "entity_type": "PERSON"}]
+  },
+  {
+    "name": "student_id_nested_and_lowercase",
+    "payload": {"records": [{"student_id": "stu-demo-03214"}]},
+    "truth": [{"path": "$.records[0].student_id", "value": "stu-demo-03214", "entity_type": "STUDENT_ID"}]
+  },
+  {
+    "name": "student_id_in_natural_language",
+    "payload": {"message": "Reference STU-DEMO-08420 in the synthetic record."},
+    "truth": [{"path": "$.message", "value": "STU-DEMO-08420", "entity_type": "STUDENT_ID"}]
+  },
+  {
+    "name": "aadhaar_spaced_context",
+    "payload": {"message": "Aadhaar number: 0000 0000 0000."},
+    "truth": [{"path": "$.message", "value": "0000 0000 0000", "entity_type": "AADHAAR"}]
+  },
+  {
+    "name": "aadhaar_hyphenated_context",
+    "payload": {"records": [{"identity_note": "Aadhar card no 1111-2222-3333"}]},
+    "truth": [{"path": "$.records[0].identity_note", "value": "1111-2222-3333", "entity_type": "AADHAAR"}]
+  },
+  {
+    "name": "bank_account_context_and_spacing",
+    "payload": {"message": "Bank account: 1234 5678 9012"},
+    "truth": [{"path": "$.message", "value": "1234 5678 9012", "entity_type": "BANK_ACCOUNT"}]
+  },
+  {
+    "name": "bank_account_acct_label",
+    "payload": {"records": [{"details": "Acct. number = 9876543210987654"}]},
+    "truth": [{"path": "$.records[0].details", "value": "9876543210987654", "entity_type": "BANK_ACCOUNT"}]
+  },
+  {
+    "name": "upi_id_user_label",
+    "payload": {"message": "UPI ID: sample.user@demo-bank"},
+    "truth": [{"path": "$.message", "value": "sample.user@demo-bank", "entity_type": "UPI_ID"}]
+  },
+  {
+    "name": "upi_id_vpa_context",
+    "payload": {"records": [{"payment_note": "VPA is casey.demo@demo-pay"}]},
+    "truth": [{"path": "$.records[0].payment_note", "value": "casey.demo@demo-pay", "entity_type": "UPI_ID"}]
+  },
+  {
+    "name": "payment_card_spaced_test_number",
+    "payload": {"message": "Demo card 4111 1111 1111 1111"},
+    "truth": [{"path": "$.message", "value": "4111 1111 1111 1111", "entity_type": "PAYMENT_CARD"}]
+  },
+  {
+    "name": "payment_card_compact_test_number",
+    "payload": {"records": [{"card_reference": "5555555555554444"}]},
+    "truth": [{"path": "$.records[0].card_reference", "value": "5555555555554444", "entity_type": "PAYMENT_CARD"}]
+  },
+  {
+    "name": "pan_context_uppercase",
+    "payload": {"message": "PAN: ABCDE1234F"},
+    "truth": [{"path": "$.message", "value": "ABCDE1234F", "entity_type": "PAN"}]
+  },
+  {
+    "name": "pan_context_lowercase",
+    "payload": {"records": [{"tax_note": "pan is pqrsx9999l"}]},
+    "truth": [{"path": "$.records[0].tax_note", "value": "pqrsx9999l", "entity_type": "PAN"}]
+  },
+  {
+    "name": "ifsc_inline",
+    "payload": {"message": "Use branch code DEMO0001234 for this synthetic record."},
+    "truth": [{"path": "$.message", "value": "DEMO0001234", "entity_type": "IFSC"}]
+  },
+  {
+    "name": "ifsc_nested_field",
+    "payload": {"records": [{"routing_note": "TEST0009876"}]},
+    "truth": [{"path": "$.records[0].routing_note", "value": "TEST0009876", "entity_type": "IFSC"}]
+  },
+  {
+    "name": "iban_spaced_context_free_format",
+    "payload": {"message": "IBAN GB82 WEST 1234 5698 7654 32 is synthetic."},
+    "truth": [{"path": "$.message", "value": "GB82 WEST 1234 5698 7654 32", "entity_type": "IBAN"}]
+  },
+  {
+    "name": "iban_compact_nested_value",
+    "payload": {"records": [{"account_ref": "GB29NWBK60161331926819"}]},
+    "truth": [{"path": "$.records[0].account_ref", "value": "GB29NWBK60161331926819", "entity_type": "IBAN"}]
+  },
+  {
+    "name": "mixed_nested_repeated_contact_values",
+    "payload": {"requester": {"name": "Avery Example", "email": "avery@example.test"}, "history": ["Call +91 11111 11111", "Email avery@example.test"]},
+    "truth": [
+      {"path": "$.requester.name", "value": "Avery Example", "entity_type": "PERSON"},
+      {"path": "$.requester.email", "value": "avery@example.test", "entity_type": "EMAIL"},
+      {"path": "$.history[0]", "value": "+91 11111 11111", "entity_type": "PHONE_NUMBER"},
+      {"path": "$.history[1]", "value": "avery@example.test", "entity_type": "EMAIL"}
+    ]
+  },
+  {
+    "name": "safe_near_misses",
+    "payload": {"message": "Version 1.2.3, order 12345, invalid card 4111 1111 1111 1112, and code ABCD1234F."},
+    "truth": []
+  },
+  {
+    "name": "ambiguous_ten_digit_reference_false_positive_control",
+    "payload": {"message": "Public build reference: 1234567890."},
+    "truth": []
   }
 ]

@@ -85,3 +85,29 @@ def test_blocked_workflow_marks_helpdesk_not_reached(demo_app):
     visible = "\n".join(item.value for item in app_test.markdown)
     assert "Helpdesk not reached" in visible
     assert any("helpdesk was not called" in item.value.lower() for item in app_test.error)
+
+
+def test_structured_payload_example_keeps_ticket_intake_separate_and_shows_receipt(demo_app):
+    app_test = demo_app.run(timeout=15)
+    assert not app_test.exception
+
+    button = next(
+        button for button in app_test.button
+        if button.label == "Run synthetic structured payload"
+    )
+    button.click().run(timeout=15)
+
+    assert not app_test.exception
+    result = app_test.session_state["veil_structured_demo"]
+    assert result["audit"]["status"] == "allowed"
+    assert result["tool_call_count"] == 1
+    assert result["tool_receipt"] == result["sanitized_payload"]
+    assert set(result["detection_types"]) == {
+        "EMAIL", "PHONE_NUMBER", "PERSON", "STUDENT_ID", "AADHAAR",
+        "BANK_ACCOUNT", "UPI_ID", "PAYMENT_CARD", "PAN", "IFSC", "IBAN",
+    }
+    visible = "\n".join(item.value for item in app_test.markdown)
+    assert "General structured payload example" in visible
+    assert "Exact payload received by the simulated tool" in visible
+    assert "Detected types" in visible
+    assert "Run workflow" in [button.label for button in app_test.button]

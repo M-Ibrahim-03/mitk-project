@@ -35,7 +35,10 @@ def sanitize_payload(
 
     def visit(value: object, path: str) -> object:
         if isinstance(value, str):
-            detections = detector.detect(value, field_hint=path)
+            # Scan a same-length view so current-task tokens do not get
+            # reclassified as another PII type on a second middleware pass.
+            # Offsets still line up with the original value for replacements.
+            detections = detector.detect(vault.mask_known_tokens(value), field_hint=path)
             sanitized = value
             replacements: list[tuple[Detection, str]] = []
             for detection in detections:
@@ -66,7 +69,9 @@ def sanitize_payload(
         if isinstance(value, dict):
             sanitized_dict = {}
             for key, item in value.items():
-                sensitive_key = isinstance(key, str) and detector.detect(key)
+                sensitive_key = isinstance(key, str) and detector.detect(
+                    vault.mask_known_tokens(key)
+                )
                 safe_key_path = (
                     f"{path}.<sensitive-key>" if sensitive_key else f"{path}.{key}"
                 )
@@ -87,7 +92,7 @@ def verify_egress(payload: object, detector: PIIDetector, vault: TokenVault) -> 
 
     def visit(value: object, path: str) -> None:
         if isinstance(value, str):
-            findings = detector.detect(value, field_hint=path)
+            findings = detector.detect(vault.mask_known_tokens(value), field_hint=path)
             if findings:
                 raise EgressBlocked(
                     f"Residual {findings[0].entity_type} detected at {path}."
@@ -97,7 +102,11 @@ def verify_egress(payload: object, detector: PIIDetector, vault: TokenVault) -> 
                 visit(item, f"{path}[{index}]")
         elif isinstance(value, dict):
             for key, item in value.items():
-                key_findings = detector.detect(key) if isinstance(key, str) else []
+                key_findings = (
+                    detector.detect(vault.mask_known_tokens(key))
+                    if isinstance(key, str)
+                    else []
+                )
                 if key_findings:
                     raise EgressBlocked(
                         f"Residual {key_findings[0].entity_type} detected in an object key under {path}."
@@ -105,4 +114,3 @@ def verify_egress(payload: object, detector: PIIDetector, vault: TokenVault) -> 
                 visit(item, f"{path}.{key}")
 
     visit(payload, "$")
-

@@ -36,10 +36,10 @@ class RequesterDetails:
 
 @dataclass(frozen=True)
 class AgentRequest:
-    """One user message and its structured contact fields."""
+    """One user message and optional legacy structured contact fields."""
 
     message: str
-    requester: RequesterDetails
+    requester: RequesterDetails | None = None
 
 
 @dataclass(frozen=True)
@@ -68,24 +68,22 @@ class LocalDemoAgent:
 
         ticket_match = TICKET_ID_PATTERN.search(request.message)
         if ticket_match is None:
-            return AgentToolCall(
-                tool_name="submit_support_request",
-                payload={
-                    "requester": request.requester.to_dict(),
-                    "user_message": request.message,
-                    "question": "help with the user's support request",
-                },
-            )
-
-        return AgentToolCall(
-            tool_name="lookup_helpdesk_ticket",
-            payload={
-                "ticket_id": ticket_match.group(1).upper(),
-                "requester": request.requester.to_dict(),
+            payload: dict[str, object] = {
                 "user_message": request.message,
-                "question": "ticket status and next update",
-            },
-        )
+                "question": "help with the user's support request",
+            }
+            if request.requester is not None:
+                payload["requester"] = request.requester.to_dict()
+            return AgentToolCall(tool_name="submit_support_request", payload=payload)
+
+        payload = {
+            "ticket_id": ticket_match.group(1).upper(),
+            "user_message": request.message,
+            "question": "ticket status and next update",
+        }
+        if request.requester is not None:
+            payload["requester"] = request.requester.to_dict()
+        return AgentToolCall(tool_name="lookup_helpdesk_ticket", payload=payload)
 
     def format_answer(self, tool_response: object) -> str:
         if not isinstance(tool_response, dict):
@@ -95,31 +93,39 @@ class LocalDemoAgent:
         if isinstance(support_request, dict):
             requester = tool_response.get("requester", {})
             if not isinstance(requester, dict):
-                return "I could not safely read the helpdesk reply."
-            name = requester.get("name", "there")
-            email = requester.get("email", "the address on file")
+                requester = {}
+            name = requester.get("name")
+            email = requester.get("email")
             reference_id = support_request.get("reference_id", "the demo helpdesk")
             message_echo = tool_response.get("message_echo", "")
             if not isinstance(message_echo, str):
                 message_echo = ""
-            return (
-                f"{name}, your support request was received as {reference_id}. "
-                f"Contact on file: {email}. Request details: {message_echo}"
-            )
+            greeting = f"{name}, " if isinstance(name, str) else "Your "
+            answer = f"{greeting}support request was received as {reference_id}."
+            if isinstance(email, str):
+                answer += f" Contact on file: {email}."
+            if message_echo:
+                answer += f" Request details: {message_echo}"
+            return answer
 
         if "ticket" not in tool_response:
             return "I could not find that demo ticket."
 
         ticket = tool_response["ticket"]
         requester = tool_response.get("requester", {})
-        if not isinstance(ticket, dict) or not isinstance(requester, dict):
+        if not isinstance(ticket, dict):
             return "I could not safely read the demo ticket reply."
+        if not isinstance(requester, dict):
+            requester = {}
 
-        name = requester.get("name", "there")
-        email = requester.get("email", "the address on file")
-        return (
-            f"{name}, ticket {ticket.get('ticket_id')} is "
+        name = requester.get("name")
+        email = requester.get("email")
+        greeting = f"{name}, " if isinstance(name, str) else "Your "
+        answer = (
+            f"{greeting}ticket {ticket.get('ticket_id')} is "
             f"{ticket.get('status')} with {ticket.get('team')}. "
-            f"The next update is expected in {ticket.get('next_update')}. "
-            f"Contact on file: {email}."
+            f"The next update is expected in {ticket.get('next_update')}."
         )
+        if isinstance(email, str):
+            answer += f" Contact on file: {email}."
+        return answer

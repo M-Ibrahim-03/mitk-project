@@ -73,33 +73,64 @@ function RunNode({
   label,
   type,
   status,
+  connectsToNext = false,
+  connectorLabel,
   children,
 }: {
   index: number;
   label: string;
   type: string;
   status: NodeStatus;
+  connectsToNext?: boolean;
+  connectorLabel?: string;
   children: React.ReactNode;
 }) {
   const prefersReducedMotion = useReducedMotion();
   const badge = status === "complete" ? "✓" : status === "blocked" ? "×" : status === "failed" ? "!" : index.toString().padStart(2, "0");
+  const side = index % 2 === 1 ? "left" : "right";
+  const routePath = side === "left"
+    ? "M 72 35 C 96 35, 100 88, 40 100"
+    : "M 28 35 C 4 35, 0 88, 60 100";
   return (
-    <li aria-label={`${label}, ${status}`} className={`flow-node flow-node--${type} flow-node--${status}`}>
-      <motion.div
-        animate={status === "active" && !prefersReducedMotion ? { scale: [1, 1.08, 1] } : { scale: 1 }}
-        className="flow-node__circle"
-        transition={{ duration: 1.25, repeat: status === "active" && !prefersReducedMotion ? Infinity : 0 }}
-      >
-        <span>{badge}</span>
-        {status === "active" && <span aria-hidden="true" className="flow-node__pulse" />}
-      </motion.div>
+    <li aria-label={`${label}, ${status}`} className={`flow-node flow-node--${type} flow-node--${status} flow-node--${side}`}>
       <article className="flow-node__card">
         <header className="flow-node__header">
-          <h2>{label}</h2>
-          <span className="node-status">{status}</span>
+          <div className="flow-node__identity">
+            <motion.div
+              animate={status === "active" && !prefersReducedMotion ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+              className="flow-node__circle"
+              transition={{ duration: 1.25, repeat: status === "active" && !prefersReducedMotion ? Infinity : 0 }}
+            >
+              <span>{badge}</span>
+              {status === "active" && <span aria-hidden="true" className="flow-node__pulse" />}
+            </motion.div>
+            <div className="flow-node__heading">
+              <span className="flow-node__stage">STEP {index.toString().padStart(2, "0")} <i /> {type.toUpperCase()}</span>
+              <h2>{label}</h2>
+            </div>
+          </div>
+          <span className="node-status"><i aria-hidden="true" />{status}</span>
         </header>
         {children}
       </article>
+      {connectsToNext && (
+        <span
+          aria-hidden="true"
+          className={`flow-connector flow-connector--${side}${status === "complete" ? " flow-connector--flowing" : status === "blocked" || status === "failed" ? " flow-connector--blocked" : ""}`}
+          data-testid="workflow-connector"
+        >
+          <svg className="flow-connector__svg" preserveAspectRatio="none" viewBox="0 0 100 100">
+            <defs>
+              <marker id={`workflow-arrow-${index}`} markerHeight="8" markerUnits="strokeWidth" markerWidth="8" orient="auto" refX="7" refY="4" viewBox="0 0 8 8">
+                <path className="flow-connector__arrowhead" d="M 0 0 L 8 4 L 0 8 z" />
+              </marker>
+            </defs>
+            <path className="flow-connector__path" d={routePath} markerEnd={`url(#workflow-arrow-${index})`} />
+            <path className="flow-connector__signal" d={routePath} />
+          </svg>
+          {connectorLabel && <span className="flow-connector__label">{connectorLabel}</span>}
+        </span>
+      )}
     </li>
   );
 }
@@ -108,11 +139,14 @@ function RunEvidence({ events, snapshot }: { events: WorkflowEvent[]; snapshot: 
   const event = (stage: string) => latestEvent(events, stage);
   const requestArtifact = objectValue(event("request_received")?.artifact);
   const agentArtifact = objectValue(event("tool_call_prepared")?.artifact);
+  const protectedPrompt = objectValue(event("model_input_protection")?.artifact)?.protected_prompt;
+  const modelAnswer = event("agent_model_answer")?.artifact;
   const scanArtifact = objectValue(event("privacy_scan")?.artifact);
   const sanitizedPayload = scanArtifact?.sanitized_payload;
   const detections = Array.isArray(scanArtifact?.detections) ? scanArtifact.detections : [];
   const helpdeskPayload = event("helpdesk")?.artifact ?? null;
   const tokenizedResponse = event("tool_response")?.artifact;
+  const modelToolContext = event("model_tool_context")?.artifact;
   const restoredResponse = event("response_restore")?.artifact;
   const audit = snapshot?.audit;
   const egress = event("egress_gate");
@@ -120,18 +154,20 @@ function RunEvidence({ events, snapshot }: { events: WorkflowEvent[]; snapshot: 
 
   return (
     <ol aria-label="Workflow steps" className="workflow-steps">
-      <RunNode index={1} label="User request" type="user" status={nodeStatus(events, nodeDefinitions[0].watches)}>
+      <RunNode index={1} label="User request" type="user" status={nodeStatus(events, nodeDefinitions[0].watches)} connectsToNext connectorLabel="MESSAGE">
         <p className="node-explanation">The original message enters the local agent.</p>
         <Evidence label="ORIGINAL MESSAGE · STAYS LOCAL" value={requestArtifact?.message} tone="original" />
       </RunNode>
 
-      <RunNode index={2} label="AI agent" type="agent" status={nodeStatus(events, nodeDefinitions[1].watches)}>
-        <p className="node-explanation">The agent decides which helpdesk action fits.</p>
+      <RunNode index={2} label="AI agent" type="agent" status={nodeStatus(events, nodeDefinitions[1].watches)} connectsToNext connectorLabel="TOOL CALL">
+        <p className="node-explanation">{snapshot?.agent_mode === "gemini" ? "Gemini sees Veil's tokenized prompt and proposes a call; Veil still validates it." : "The offline agent decides which helpdesk action fits."}</p>
+        {snapshot?.agent_mode && <div className="tool-choice"><span>AGENT MODE</span><strong>{snapshot.agent_mode === "gemini" ? "Gemini · networked" : "Deterministic · offline"}</strong></div>}
+        {typeof protectedPrompt === "string" && <Evidence label="TOKENIZED PROMPT SENT TO GEMINI" value={protectedPrompt} tone="protected" />}
         {agentArtifact && <div className="tool-choice"><span>TOOL SELECTED</span><strong>{String(agentArtifact.tool_name)}</strong></div>}
         <Evidence label="AGENT'S PREPARED REQUEST" value={agentArtifact?.payload} />
       </RunNode>
 
-      <RunNode index={3} label="Veil privacy layer" type="veil" status={nodeStatus(events, nodeDefinitions[2].watches)}>
+      <RunNode index={3} label="Veil privacy layer" type="veil" status={nodeStatus(events, nodeDefinitions[2].watches)} connectsToNext connectorLabel="PROTECTED PAYLOAD">
         <p className="node-explanation">Veil replaces detected values, then checks the exact outgoing payload.</p>
         <div className="privacy-receipt">
           <span className={`receipt-shield ${egress?.status === "complete" ? "is-safe" : egress?.status === "blocked" ? "is-blocked" : ""}`} aria-hidden="true">
@@ -146,21 +182,23 @@ function RunEvidence({ events, snapshot }: { events: WorkflowEvent[]; snapshot: 
         {egress?.status === "blocked" && <p className="blocked-note">{egress.message}</p>}
       </RunNode>
 
-      <RunNode index={4} label="Helpdesk tool" type="tool" status={nodeStatus(events, nodeDefinitions[3].watches)}>
+      <RunNode index={4} label="Helpdesk tool" type="tool" status={nodeStatus(events, nodeDefinitions[3].watches)} connectsToNext connectorLabel="TOOL REPLY">
         <p className="node-explanation">The offline helpdesk sees only the payload captured after Veil's check.</p>
         <Evidence label="EXACTLY WHAT THE TOOL RECEIVED" value={helpdeskPayload} tone="protected" />
         <Evidence label="TOOL'S TOKENIZED REPLY" value={tokenizedResponse} tone="tokenized" />
+        {snapshot?.agent_mode === "gemini" && <Evidence label="TOKENIZED TOOL CONTEXT SENT TO GEMINI" value={modelToolContext} tone="protected" />}
         {!helpdeskPayload && <p className="not-reached">{egress?.status === "blocked" ? "Not reached — Veil stopped the call." : "Waiting for Veil's egress check…"}</p>}
       </RunNode>
 
-      <RunNode index={5} label="Veil restoration" type="veil" status={nodeStatus(events, nodeDefinitions[4].watches)}>
+      <RunNode index={5} label="Veil restoration" type="veil" status={nodeStatus(events, nodeDefinitions[4].watches)} connectsToNext connectorLabel="RESTORED CONTEXT">
         <p className="node-explanation">Only the trusted return path maps this run's tokens back.</p>
         <Evidence label="TRUSTED REPLY · VALUES RESTORED" value={restoredResponse} tone="restored" />
         {!restoredResponse && <p className="not-reached">Waiting for a safe tool reply.</p>}
       </RunNode>
 
       <RunNode index={6} label="Agent answer" type="agent" status={nodeStatus(events, nodeDefinitions[5].watches)}>
-        <p className="node-explanation">The local agent answers using the restored response.</p>
+        <p className="node-explanation">{snapshot?.agent_mode === "gemini" ? "Veil restores only known tokens locally after Gemini drafts its answer." : "The offline agent answers using Veil's restored response."}</p>
+        {typeof modelAnswer === "string" && <Evidence label="TOKENIZED MODEL ANSWER · BEFORE LOCAL RESTORATION" value={modelAnswer} tone="tokenized" />}
         {typeof agentAnswer === "string" ? (
           <div className="agent-answer-evidence">{agentAnswer}</div>
         ) : <p className="not-reached">The agent has not answered yet.</p>}
@@ -238,8 +276,9 @@ export function WorkflowPage({ runId }: WorkflowPageProps) {
   }, [prefersReducedMotion]);
 
   const visibleEvents = events.slice(0, visibleEventCount);
-  const completedStages = new Set(visibleEvents.filter((event) => event.status === "complete").map((event) => event.stage));
   const visualStatus = status === "complete" && visibleEventCount < events.length ? "replaying" : status;
+  const failedEvent = [...events].reverse().find((event) => event.status === "failed");
+  const failureMessage = error ?? failedEvent?.message;
 
   return (
     <main className="page-shell workflow-shell">
@@ -253,16 +292,16 @@ export function WorkflowPage({ runId }: WorkflowPageProps) {
       <section className="surface-card workflow-card">
         <div className="workflow-heading">
           <div>
-            <span className="eyebrow">THE PRIVACY HANDOFF · LIVE RUN</span>
-            <h1>See what happened to your message</h1>
-            <p className="intro-copy">Follow the actual request and reply across Veil's trust boundary.</p>
+            <span className="eyebrow"><i aria-hidden="true" /> VEIL / LIVE PRIVACY TRACE</span>
+            <h1>Every handoff,<br />in full view.</h1>
+            <p className="intro-copy">Follow one message across Veil's trust boundary, from the agent's request to the helpdesk's exact receipt and the restored answer.</p>
           </div>
-          <span className={`live-run-badge live-run-badge--${visualStatus}`}><span aria-hidden="true" />{visualStatus}</span>
+          <span className={`live-run-badge live-run-badge--${visualStatus}`}><span aria-hidden="true" />{visualStatus === "complete" ? "Trace complete" : visualStatus === "replaying" ? "Replaying trace" : visualStatus}</span>
         </div>
 
         <div className="run-overview">
-          <span className="run-overview__id">RUN <code>{runId}</code></span>
-          <span className="run-overview__progress">{completedStages.size} real steps completed</span>
+          <span className="run-overview__id"><i aria-hidden="true">✳</i><span>RUN ID <code>{runId}</code></span></span>
+          <span className="run-overview__progress"><strong>{visibleEvents.length}</strong><span>/ {snapshot?.event_count ?? "—"} events replayed</span></span>
           {snapshot?.audit && (
             <span className="run-overview__safety">
               {snapshot.audit.egress_verified ? "✓ Egress verified" : status === "blocked" ? "× Blocked before tool" : "◌ Safety check pending"}
@@ -270,14 +309,14 @@ export function WorkflowPage({ runId }: WorkflowPageProps) {
           )}
         </div>
 
-        {error && <p className="error-banner" role="alert">{error}</p>}
+        {failureMessage && <p className="error-banner" role="alert">{failureMessage}</p>}
         <RunEvidence events={visibleEvents} snapshot={snapshot} />
         <div className="workflow-caption">
           <span aria-hidden="true" className="caption-lock">◆</span>
           <p>Evidence comes from this run's actual Veil events and the payload captured by the local helpdesk.</p>
         </div>
       </section>
-      <footer className="page-footer">Synthetic demo data · Local agent · Offline helpdesk · No cloud service</footer>
+      <footer className="page-footer">Synthetic demo data · {snapshot?.agent_mode === "gemini" ? "Gemini agent · networked" : "Offline deterministic agent"} · Offline simulated helpdesk</footer>
     </main>
   );
 }

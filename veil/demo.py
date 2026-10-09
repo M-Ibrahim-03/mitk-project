@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any
 
 import streamlit as st
@@ -14,6 +15,7 @@ from veil.demo_agent import (
     RequesterDetails,
 )
 from veil.demo_flow import WorkflowEvent, run_ticket_demo
+from veil.structured_demo import run_structured_payload_demo
 
 
 STAGE_DEFINITIONS = (
@@ -307,6 +309,44 @@ def _show_helpdesk_workflow() -> None:
         _show_ticket_result(saved)
 
 
+def _show_structured_payload_example() -> None:
+    st.header("General structured payload example")
+    st.write(
+        "This separate synthetic JSON example runs through the reusable Veil gateway "
+        "and a generic local tool. It does not change the React chat's valid-ticket rule."
+    )
+    st.caption("Nested fields and free text contain synthetic values only; no network call is made.")
+    if st.button("Run synthetic structured payload", key="veil_run_structured_demo"):
+        result = run_structured_payload_demo()
+        st.session_state["veil_structured_demo"] = {
+            "original_payload": result.original_payload,
+            "sanitized_payload": result.sanitized_payload,
+            "tool_receipt": result.tool_receipt,
+            "tokenized_response": result.tokenized_response,
+            "restored_response": result.restored_response,
+            "audit": asdict(result.audit),
+            "tool_call_count": result.tool_call_count,
+            "detection_types": result.detection_types,
+        }
+
+    saved = st.session_state.get("veil_structured_demo")
+    if saved:
+        audit = saved["audit"]
+        st.success("The generic simulated tool received Veil's protected payload.")
+        columns = st.columns(3)
+        columns[0].metric("Detected values", audit["detection_count"])
+        columns[1].metric("Original values in receipt", audit["leakage_count"])
+        columns[2].metric("Veil processing time", f"{audit['added_latency_ms']:.3f} ms")
+        st.caption("Detected types: " + ", ".join(saved["detection_types"]))
+        st.markdown("**Exact payload received by the simulated tool**")
+        st.code(json.dumps(saved["tool_receipt"], indent=2, ensure_ascii=False), language="json")
+        st.markdown("**Tokenized tool response**")
+        st.code(json.dumps(saved["tokenized_response"], indent=2, ensure_ascii=False), language="json")
+        st.markdown("**Response restored on the trusted local path**")
+        st.code(json.dumps(saved["restored_response"], indent=2, ensure_ascii=False), language="json")
+        st.caption("This example uses the exact deep-copied receipt captured at the tool boundary.")
+
+
 st.set_page_config(page_title="Veil | Privacy workflow", page_icon="🛡️", layout="wide")
 st.title("Veil")
 st.subheader("A privacy layer between an AI agent and its tools")
@@ -325,6 +365,7 @@ for key, value in {
     st.session_state.setdefault(key, value)
 
 _show_helpdesk_workflow()
+_show_structured_payload_example()
 
 with st.expander("What does Veil do?"):
     st.markdown(

@@ -7,7 +7,7 @@ from veil.api import app
 from veil.detection import PIIDetector
 from veil.gateway import VeilGateway
 from veil.mock_tool import SimulatedTool
-from veil.payload import EgressBlocked
+from veil.payload import EgressBlocked, sanitize_payload
 
 
 def test_gateway_sends_only_tokens_and_restores_trusted_response() -> None:
@@ -33,6 +33,69 @@ def test_gateway_sends_only_tokens_and_restores_trusted_response() -> None:
     gateway.close_task(context)
     assert context.closed is True
     assert context.vault.token_count == 0
+
+
+def test_gateway_exempts_only_tokens_issued_by_the_current_vault(monkeypatch) -> None:
+    monkeypatch.setattr("veil.token_vault.secrets.token_hex", lambda _: "ABC0DEF123")
+    mock_tool = SimulatedTool()
+    gateway = VeilGateway(simulated_tool=mock_tool)
+    context = gateway.start_task()
+
+    result = gateway.call_tool(
+        context, "send_message", {"email": "riley@example.test"}
+    )
+
+    assert result.sanitized_payload["email"] == "[[EMAIL:VABC0DEF123]]"
+    assert result.audit.status == "allowed"
+    assert mock_tool.received[0].payload["email"] == "[[EMAIL:VABC0DEF123]]"
+    gateway.close_task(context)
+
+    class MissFirstIfscDetector:
+        def __init__(self) -> None:
+            self.missed = False
+            self.real = PIIDetector()
+
+        def detect(self, text: str, field_hint: str = "") -> list:
+            if text == "VABC0DEF123" and not self.missed:
+                self.missed = True
+                return []
+            return self.real.detect(text, field_hint=field_hint)
+
+    unregistered_tool = SimulatedTool()
+    guarded_gateway = VeilGateway(
+        detector=MissFirstIfscDetector(),  # type: ignore[arg-type]
+        simulated_tool=unregistered_tool,
+    )
+    unregistered_context = guarded_gateway.start_task()
+
+    unregistered_result = guarded_gateway.call_tool(
+        unregistered_context, "send_message", {"message": "VABC0DEF123"}
+    )
+
+    assert unregistered_result.audit.status == "blocked"
+    assert unregistered_tool.received == []
+    guarded_gateway.close_task(unregistered_context)
+
+
+def test_gateway_preserves_current_vault_tokens_when_rescanning_request(monkeypatch) -> None:
+    monkeypatch.setattr("veil.token_vault.secrets.token_hex", lambda _: "ABC0DEF123")
+    detector = PIIDetector()
+    mock_tool = SimulatedTool()
+    gateway = VeilGateway(detector=detector, simulated_tool=mock_tool)
+    context = gateway.start_task()
+    original_message = "Contact riley@example.test"
+    protected_message = sanitize_payload(
+        original_message, detector, context.vault
+    ).payload
+
+    result = gateway.call_tool(
+        context, "send_message", {"message": protected_message}
+    )
+
+    assert result.audit.status == "allowed"
+    assert result.sanitized_payload["message"] == protected_message
+    assert result.restored_response["echo"]["message"] == original_message
+    gateway.close_task(context)
 
 
 def test_gateway_does_not_dispatch_if_egress_check_finds_residual_pii() -> None:
@@ -118,4 +181,3 @@ def test_http_tool_endpoint_runs_local_mock_gateway() -> None:
     assert body["audit"]["status"] == "allowed"
     assert "riley@example.test" not in str(body["sanitized_payload"])
     assert body["restored_response"]["echo"]["email"] == "riley@example.test"
-

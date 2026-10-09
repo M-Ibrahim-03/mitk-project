@@ -1,0 +1,137 @@
+[
+  {
+    "name": "heldout_email_nested_and_punctuated",
+    "payload": {"profile": {"reply_to": "DEMO.contact@example.test"}},
+    "truth": [{"path": "$.profile.reply_to", "value": "DEMO.contact@example.test", "entity_type": "EMAIL"}]
+  },
+  {
+    "name": "heldout_email_in_natural_language",
+    "payload": {"text": "Please send the synthetic notice to beta+case@sample.invalid."},
+    "truth": [{"path": "$.text", "value": "beta+case@sample.invalid", "entity_type": "EMAIL"}]
+  },
+  {
+    "name": "heldout_phone_parentheses_and_country_code",
+    "payload": {"message": "Callback: +1 (202) 555-0100"},
+    "truth": [{"path": "$.message", "value": "+1 (202) 555-0100", "entity_type": "PHONE_NUMBER"}]
+  },
+  {
+    "name": "heldout_phone_array_context",
+    "payload": {"calls": ["Mobile number is 000-111-2222"]},
+    "truth": [{"path": "$.calls[0]", "value": "000-111-2222", "entity_type": "PHONE_NUMBER"}]
+  },
+  {
+    "name": "heldout_person_name_customer_context",
+    "payload": {"message": "Customer: Taylor Fictional; status requested."},
+    "truth": [{"path": "$.message", "value": "Taylor Fictional", "entity_type": "PERSON"}]
+  },
+  {
+    "name": "heldout_person_name_contact_field",
+    "payload": {"requester": {"contact_name": "Morgan Placeholder"}},
+    "truth": [{"path": "$.requester.contact_name", "value": "Morgan Placeholder", "entity_type": "PERSON"}]
+  },
+  {
+    "name": "heldout_student_id_in_array",
+    "payload": {"records": [{"student": "STU-DEMO-99108"}]},
+    "truth": [{"path": "$.records[0].student", "value": "STU-DEMO-99108", "entity_type": "STUDENT_ID"}]
+  },
+  {
+    "name": "heldout_student_id_lowercase_text",
+    "payload": {"message": "Lookup stu-demo-12009 in the mock student directory."},
+    "truth": [{"path": "$.message", "value": "stu-demo-12009", "entity_type": "STUDENT_ID"}]
+  },
+  {
+    "name": "heldout_aadhaar_uid_format",
+    "payload": {"message": "UID no: 2222 3333 4444"},
+    "truth": [{"path": "$.message", "value": "2222 3333 4444", "entity_type": "AADHAAR"}]
+  },
+  {
+    "name": "heldout_aadhaar_compact_format",
+    "payload": {"records": [{"identity": "Aadhar: 555566667777"}]},
+    "truth": [{"path": "$.records[0].identity", "value": "555566667777", "entity_type": "AADHAAR"}]
+  },
+  {
+    "name": "heldout_bank_account_hash_label",
+    "payload": {"message": "Bank account # 23456789012345"},
+    "truth": [{"path": "$.message", "value": "23456789012345", "entity_type": "BANK_ACCOUNT"}]
+  },
+  {
+    "name": "heldout_bank_account_ac_slash_c",
+    "payload": {"records": [{"note": "A/C no. 876543210987"}]},
+    "truth": [{"path": "$.records[0].note", "value": "876543210987", "entity_type": "BANK_ACCOUNT"}]
+  },
+  {
+    "name": "heldout_upi_address_label",
+    "payload": {"message": "UPI address: beta.user@demo-bank"},
+    "truth": [{"path": "$.message", "value": "beta.user@demo-bank", "entity_type": "UPI_ID"}]
+  },
+  {
+    "name": "heldout_upi_vpa_compact_context",
+    "payload": {"records": [{"value": "VPA=gamma.user@sample-pay"}]},
+    "truth": [{"path": "$.records[0].value", "value": "gamma.user@sample-pay", "entity_type": "UPI_ID"}]
+  },
+  {
+    "name": "heldout_card_compact_test_number",
+    "payload": {"message": "Synthetic payment card 4012888888881881"},
+    "truth": [{"path": "$.message", "value": "4012888888881881", "entity_type": "PAYMENT_CARD"}]
+  },
+  {
+    "name": "heldout_card_spaced_test_number",
+    "payload": {"records": [{"card": "6011 0009 9013 9424"}]},
+    "truth": [{"path": "$.records[0].card", "value": "6011 0009 9013 9424", "entity_type": "PAYMENT_CARD"}]
+  },
+  {
+    "name": "heldout_pan_in_free_text",
+    "payload": {"message": "Synthetic PAN code: LMNOP4321Q"},
+    "truth": [{"path": "$.message", "value": "LMNOP4321Q", "entity_type": "PAN"}]
+  },
+  {
+    "name": "heldout_pan_mixed_case",
+    "payload": {"records": [{"tax_reference": "pan=uvwxy6789z"}]},
+    "truth": [{"path": "$.records[0].tax_reference", "value": "uvwxy6789z", "entity_type": "PAN"}]
+  },
+  {
+    "name": "heldout_ifsc_labeled",
+    "payload": {"message": "Branch IFSC: MOCK0002468"},
+    "truth": [{"path": "$.message", "value": "MOCK0002468", "entity_type": "IFSC"}]
+  },
+  {
+    "name": "heldout_ifsc_in_nested_array",
+    "payload": {"routing": [{"code": "BANK0001357"}]},
+    "truth": [{"path": "$.routing[0].code", "value": "BANK0001357", "entity_type": "IFSC"}]
+  },
+  {
+    "name": "heldout_iban_german_spaced",
+    "payload": {"message": "IBAN DE89 3704 0044 0532 0130 00"},
+    "truth": [{"path": "$.message", "value": "DE89 3704 0044 0532 0130 00", "entity_type": "IBAN"}]
+  },
+  {
+    "name": "heldout_iban_french_compact",
+    "payload": {"records": [{"international_account": "FR1420041010050500013M02606"}]},
+    "truth": [{"path": "$.records[0].international_account", "value": "FR1420041010050500013M02606", "entity_type": "IBAN"}]
+  },
+  {
+    "name": "heldout_mixed_pii_nested_arrays_and_repeats",
+    "payload": {"requester": {"name": "Jordan Demo", "email": "jordan@example.test"}, "comments": ["Phone: +91 22222 33333", "Reply to jordan@example.test"]},
+    "truth": [
+      {"path": "$.requester.name", "value": "Jordan Demo", "entity_type": "PERSON"},
+      {"path": "$.requester.email", "value": "jordan@example.test", "entity_type": "EMAIL"},
+      {"path": "$.comments[0]", "value": "+91 22222 33333", "entity_type": "PHONE_NUMBER"},
+      {"path": "$.comments[1]", "value": "jordan@example.test", "entity_type": "EMAIL"}
+    ]
+  },
+  {
+    "name": "heldout_safe_format_near_misses",
+    "payload": {"message": "Order 4821; invalid card 4111 1111 1111 1112; code AB1234XY."},
+    "truth": []
+  },
+  {
+    "name": "heldout_safe_regular_support_request",
+    "payload": {"request": {"subject": "Reset the demo printer", "attempts": 2}, "tags": ["campus", "printing"]},
+    "truth": []
+  },
+  {
+    "name": "heldout_ambiguous_phone_like_reference",
+    "payload": {"message": "Synthetic build reference 2223334444 is printed on the sample receipt."},
+    "truth": []
+  }
+]

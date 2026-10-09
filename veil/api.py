@@ -8,13 +8,17 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.encoders import jsonable_encoder
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from veil.demo_agent import DEMO_REQUESTER, AgentRequest, RequesterDetails
 from veil.demo_flow import WorkflowEvent, run_ticket_demo
 from veil.gateway import VeilGateway
+from veil.helpdesk import VALID_TICKET_MESSAGE, require_demo_ticket_id
 from veil.run_registry import RunCapacityError, RunStore
+
+load_dotenv()
 
 app = FastAPI(
     title="Veil Privacy Gateway",
@@ -39,7 +43,7 @@ class DemoRequesterRequest(BaseModel):
 
 class DemoRunRequest(BaseModel):
     message: Annotated[str, Field(min_length=1, max_length=4000)]
-    requester: DemoRequesterRequest = Field(default_factory=DemoRequesterRequest)
+    requester: DemoRequesterRequest | None = None
     additional_sensitive_values: list[
         Annotated[str, Field(min_length=1, max_length=256)]
     ] = Field(default_factory=list, max_length=20)
@@ -49,6 +53,7 @@ def _execute_demo_run(
     run_id: str,
     request: AgentRequest,
     additional_sensitive_values: tuple[str, ...],
+    agent_mode: str,
 ) -> None:
     run_store.mark_running(run_id)
     try:
@@ -57,16 +62,36 @@ def _execute_demo_run(
             run_id=run_id,
             additional_sensitive_values=additional_sensitive_values,
             on_event=run_store.append_event,
+            agent_mode=agent_mode,
         )
         run_store.finish(run)
-    except Exception:
+    except Exception as error:
+        record = run_store.get(run_id)
+        failed_stage = next(
+            (
+                event.stage
+                for event in reversed(record.events)
+                if event.status == "active"
+            ),
+            "workflow",
+        ) if record is not None else "workflow"
+        failure_message = "The local workflow could not complete safely."
+        if agent_mode == "gemini":
+            from veil.gemini_agent import AgentProtocolError
+
+            failure_message = (
+                str(error)
+                if isinstance(error, AgentProtocolError)
+                else "The Gemini run could not complete. Check the ticket ID and "
+                "Gemini connection, then try again."
+            )
         run_store.fail(
             run_id,
             WorkflowEvent(
                 run_id=run_id,
-                stage="workflow",
+                stage=failed_stage,
                 status="failed",
-                message="The local workflow could not complete safely.",
+                message=failure_message,
             ),
         )
 
@@ -89,6 +114,7 @@ def _run_snapshot(record: Any) -> dict[str, object]:
     return {
         "run_id": record.run_id,
         "status": record.status,
+        "agent_mode": record.agent_mode,
         "events": events,
         "event_count": len(events),
         "tool_payload": tool_event["artifact"] if tool_event else None,
@@ -108,23 +134,43 @@ def health() -> dict[str, str]:
 @app.post("/api/runs", status_code=status.HTTP_202_ACCEPTED)
 def create_workflow_run(request: DemoRunRequest) -> dict[str, str]:
     """Queue one local agent workflow; payload data is never sent outside Veil."""
+    from veil.gemini_agent import AgentConfigurationError, resolve_agent_mode
+
+    try:
+        agent_mode = resolve_agent_mode()
+    except AgentConfigurationError:
+        raise HTTPException(
+            status_code=503,
+            detail="Selected agent mode is missing server configuration.",
+        ) from None
+
+    try:
+        require_demo_ticket_id(request.message)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=VALID_TICKET_MESSAGE) from None
+
     run_id = uuid4().hex
     try:
-        run_store.create(run_id)
+        run_store.create(run_id, agent_mode=agent_mode)
     except RunCapacityError as error:
         raise HTTPException(status_code=503, detail=str(error)) from None
 
     agent_request = AgentRequest(
         message=request.message,
-        requester=RequesterDetails(**request.requester.model_dump()),
+        requester=(
+            RequesterDetails(**request.requester.model_dump())
+            if request.requester is not None
+            else None
+        ),
     )
     run_executor.submit(
         _execute_demo_run,
         run_id,
         agent_request,
         tuple(request.additional_sensitive_values),
+        agent_mode,
     )
-    return {"run_id": run_id, "status": "queued"}
+    return {"run_id": run_id, "status": "queued", "agent_mode": agent_mode}
 
 
 @app.get("/api/runs/{run_id}")
@@ -197,4 +243,3 @@ def tool_call(request: ToolCallRequest) -> dict[str, object]:
         return gateway.call_tool(context, request.tool_name, request.payload).to_dict()
     finally:
         gateway.close_task(context)
-

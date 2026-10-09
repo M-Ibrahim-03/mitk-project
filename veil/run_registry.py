@@ -17,6 +17,7 @@ TERMINAL_STATUSES = {"complete", "blocked", "failed"}
 @dataclass
 class WorkflowRunRecord:
     run_id: str
+    agent_mode: str = "deterministic"
     created_at: float = field(default_factory=monotonic)
     status: RunStatus = "queued"
     events: list[WorkflowEvent] = field(default_factory=list)
@@ -39,7 +40,9 @@ class RunStore:
         self._runs: OrderedDict[str, WorkflowRunRecord] = OrderedDict()
         self._lock = RLock()
 
-    def create(self, run_id: str) -> WorkflowRunRecord:
+    def create(
+        self, run_id: str, *, agent_mode: str = "deterministic"
+    ) -> WorkflowRunRecord:
         with self._lock:
             self._prune_expired()
             if run_id in self._runs:
@@ -56,7 +59,7 @@ class RunStore:
                 if removable_id is None:
                     raise RunCapacityError("All local workflow slots are busy.")
                 del self._runs[removable_id]
-            record = WorkflowRunRecord(run_id=run_id)
+            record = WorkflowRunRecord(run_id=run_id, agent_mode=agent_mode)
             self._runs[run_id] = record
             return record
 

@@ -49,7 +49,7 @@ describe("Veil page routes", () => {
     renderAt("/runs/run-demo-123");
 
     expect(
-      screen.getByRole("heading", { name: /see what happened to your message/i }),
+      screen.getByRole("heading", { name: /every handoff/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("run-demo-123")).toBeInTheDocument();
     expect(

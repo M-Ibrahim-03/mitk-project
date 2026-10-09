@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from veil.mock_tool import CapturedToolCall, SimulatedTool
@@ -17,6 +18,23 @@ DEMO_TICKETS: dict[str, dict[str, str]] = {
         "next_update": "10 minutes",
     }
 }
+
+_TICKET_ID_PATTERN = re.compile(r"\b(TICKET-[A-Z0-9]+-\d{4})\b", re.IGNORECASE)
+VALID_TICKET_MESSAGE = (
+    "Only tickets present in the local simulated helpdesk are accepted. "
+    "Use the synthetic ticket ID TICKET-DEMO-1042."
+)
+
+
+def require_demo_ticket_id(message: str) -> str:
+    """Return the one known synthetic ticket ID or reject the intake."""
+    matches = {match.upper() for match in _TICKET_ID_PATTERN.findall(message)}
+    if len(matches) != 1:
+        raise ValueError(VALID_TICKET_MESSAGE)
+    ticket_id = matches.pop()
+    if ticket_id not in DEMO_TICKETS:
+        raise ValueError(VALID_TICKET_MESSAGE)
+    return ticket_id
 
 
 class SimulatedHelpdeskTool(SimulatedTool):

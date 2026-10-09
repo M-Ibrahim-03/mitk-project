@@ -1,4 +1,4 @@
-from veil.helpdesk import DEMO_TICKET_ID, SimulatedHelpdeskTool
+from veil.helpdesk import DEMO_TICKET_ID, SimulatedHelpdeskTool, require_demo_ticket_id
 from veil.demo_agent import DEMO_REQUESTER, LocalDemoAgent
 from veil.demo_flow import run_ticket_demo
 from veil.gateway import VeilGateway
@@ -26,6 +26,12 @@ def test_helpdesk_tool_looks_up_ticket_and_echoes_only_request_tokens() -> None:
         "next_update": "10 minutes",
     }
     assert response["requester"] == payload["requester"]
+
+
+def test_ticket_intake_accepts_repeated_mentions_of_one_known_ticket() -> None:
+    message = f"Check {DEMO_TICKET_ID}; I mean {DEMO_TICKET_ID}."
+
+    assert require_demo_ticket_id(message) == DEMO_TICKET_ID
 
 
 def test_gateway_protects_ticket_request_and_agent_receives_restored_details() -> None:

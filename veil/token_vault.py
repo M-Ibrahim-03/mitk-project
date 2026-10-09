@@ -27,6 +27,12 @@ class TokenVault:
             text = text.replace(token, value)
         return text
 
+    def mask_known_tokens(self, text: str) -> str:
+        """Hide only this task's issued tokens from residual-PII pattern scans."""
+        for token in self._token_to_value:
+            text = text.replace(token, "\ufffc" * len(token))
+        return text
+
     def restore(self, value: object) -> object:
         if isinstance(value, str):
             return self.restore_text(value)
@@ -61,4 +67,3 @@ def _string_values(value: object):
             if isinstance(key, str):
                 yield key
             yield from _string_values(item)
-

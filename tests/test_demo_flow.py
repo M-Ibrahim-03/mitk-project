@@ -1,5 +1,33 @@
 from veil.demo_agent import AgentRequest, RequesterDetails
 from veil.demo_flow import run_ticket_demo
+from types import SimpleNamespace
+
+
+class RecordingModels:
+    def __init__(self, message: str):
+        self.message = message
+        self.calls = []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) == 1:
+            protected = kwargs["contents"]
+            self.token = protected.split("[[EMAIL:", 1)[1].split("]]", 1)[0]
+            self.token = f"[[EMAIL:{self.token}]]"
+            return SimpleNamespace(function_calls=[SimpleNamespace(
+                name="lookup_helpdesk_ticket",
+                args={
+                    "ticket_id": "TICKET-DEMO-1042",
+                    "user_message": protected,
+                    "question": "status and next update",
+                },
+            )])
+        return SimpleNamespace(text=f"Handled request for {self.token}.")
+
+
+class RecordingGeminiClient:
+    def __init__(self, message: str):
+        self.models = RecordingModels(message)
 
 
 def make_request() -> AgentRequest:
@@ -97,6 +125,53 @@ def test_workflow_accepts_api_run_id_for_shared_event_identity() -> None:
 
     assert run.run_id == "api-run-123"
     assert all(event.run_id == "api-run-123" for event in run.events)
+
+
+def test_gemini_flow_only_sends_protected_prompt_and_tool_result_then_restores_answer() -> None:
+    original_email = "workflow@example.test"
+    message = f"Check ticket TICKET-DEMO-1042. Contact me at {original_email}."
+    client = RecordingGeminiClient(message)
+
+    run = run_ticket_demo(
+        request=AgentRequest(message),
+        agent_mode="gemini",
+        gemini_client=client,
+    )
+
+    assert run.result.audit.status == "allowed"
+    assert original_email not in client.models.calls[0]["contents"]
+    assert "[[EMAIL:" in client.models.calls[0]["contents"]
+    assert original_email not in client.models.calls[1]["contents"]
+    assert "[[EMAIL:" in client.models.calls[1]["contents"]
+    assert run.agent_call.tool_name == "lookup_helpdesk_ticket"
+    assert run.tool_payload["user_message"] == run.agent_call.payload["user_message"]
+    assert "[[EMAIL:" in run.tool_payload["user_message"]
+    assert original_email not in repr(run.tool_payload)
+    assert original_email not in repr(run.result.tool_response)
+    protected_context = next(event for event in run.events if event.stage == "model_tool_context")
+    assert original_email not in repr(protected_context.artifact)
+    assert protected_context.artifact["user_message"] == client.models.calls[0]["contents"]
+    assert protected_context.artifact["tool_result"] == run.result.tool_response
+    assert run.agent_answer == f"Handled request for {original_email}."
+    assert run.agent_mode == "gemini"
+    assert next(event for event in run.events if event.stage == "agent_model_answer").artifact.startswith("Handled request for [[EMAIL:")
+
+
+def test_gemini_flow_rejects_fault_injection_before_any_model_request() -> None:
+    client = RecordingGeminiClient("Synthetic email synthetic@example.test")
+
+    try:
+        run_ticket_demo(
+            request=AgentRequest("Synthetic email synthetic@example.test"),
+            show_blocked_path=True,
+            agent_mode="gemini",
+            gemini_client=client,
+        )
+    except ValueError as error:
+        assert "blocked-path" in str(error)
+    else:
+        raise AssertionError("Gemini mode must not use the detector-miss demo fixture")
+    assert client.models.calls == []
 
 
 

@@ -1,18 +1,21 @@
 # Veil — Privacy Middleware for Agent Tools
 
-Veil is a local-first demo of a privacy layer between an agent and its tools. The user enters a synthetic free-form request and contact details. A deterministic local agent chooses a ticket lookup when a supported ticket ID is present, or submits a general support request otherwise. Veil scans and tokenizes selected PII before dispatch, and a simulated helpdesk records exactly what it received. Veil restores known tokens only on the trusted response path back to the agent.
+Veil is a local-first demo of a privacy layer between an agent and its tools. The React chat accepts a synthetic free-form ticket request, but it only processes tickets present in the local helpdesk. The current valid ticket is `TICKET-DEMO-1042`. Gemini mode uses a real Gemini agent to propose the allowlisted ticket lookup. Before Gemini receives a prompt, Veil tokenizes selected values locally. Veil validates the proposal, protects it before egress, and routes it through the offline simulated helpdesk. Gemini receives protected context; Veil restores known tokens locally after the model drafts its answer.
 
 ## What the judging demo shows
 
-- User message plus structured synthetic name, email, and phone fields.
-- The local agent preparing a ticket lookup or general support request from the user message.
+- One synthetic free-form ticket request, with no separate contact-details form.
+- The selected agent preparing a lookup for the valid local ticket `TICKET-DEMO-1042`.
 - Veil scanning, replacing selected detected values with reversible task-scoped tokens, and checking the exact outgoing payload.
-- The simulated helpdesk receiving either the ticket lookup key or general support request, with selected details tokenized.
+- The simulated helpdesk receiving the ticket lookup and message with selected details tokenized.
 - A tokenized helpdesk response restored by Veil before the agent answers.
 - A blocked-path example where egress verification stops the request before the helpdesk is called.
 - An expandable proof panel showing **What the helpdesk actually received**.
+- A separate Streamlit example that sends nested synthetic JSON through the reusable gateway and displays the exact captured tool receipt. It does not relax the React chat's valid-ticket intake.
 
-The local demo agent is deterministic rather than a hosted LLM. A supported ticket ID such as `TICKET-DEMO-1042` selects ticket lookup; any other message selects the general support-request tool. Veil scans arbitrary text/JSON payload content for its selected recognizers: email, phone number, supported synthetic IDs, and some person names. Enter any additional synthetic secret in **Other sensitive values to protect**, one exact value per line, and include it in your message. Name detection is limited, and Veil cannot guarantee discovery of every secret unless it is recognized or explicitly listed. The demo uses only fictional data; do not enter real personal or confidential information.
+Veil scans text and JSON payload content for selected patterns: email, phone, contextual names, supported synthetic IDs, labeled Aadhaar and bank-account numbers, checksum-valid payment cards and IBANs, PAN, and IFSC. Detection is limited and can miss arbitrary, misspelled, or obscured secrets. Use fictional data only; do not enter real personal or confidential information. Gemini mode makes network requests, but the tool remains simulated and local. The legacy Streamlit fallback remains deterministic.
+
+For the React ticket flow, a valid ticket must both match `TICKET-{CATEGORY}-{4 DIGITS}` and exist in the local simulated helpdesk. Only `TICKET-DEMO-1042` is currently seeded; malformed, unknown, missing, or ambiguous ticket IDs are rejected before an agent or tool call.
 
 ## Setup
 
@@ -24,9 +27,30 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-If `py` is unavailable, install Python 3.12 and use `python -m venv .venv`. If the environment is already prepared, you can run the commands below directly with the project venv. No API keys or hosted models are needed.
+If `py` is unavailable, install Python 3.12 and use `python -m venv .venv`. If the environment is already prepared, you can run the commands below directly with the project venv. The default deterministic mode needs no API key or network access.
 
-## Run the judge demo
+### Optional Gemini mode
+
+After installing requirements, copy `.env.example` to `.env`, set `VEIL_AGENT_MODE=gemini`, and set `GEMINI_API_KEY` in that ignored local file. The backend loads the key; the browser never receives it. Gemini mode sends locally tokenized synthetic prompts to Google's hosted API. Never enter real personal or confidential data; revoke any key that is exposed after the demo.
+
+## Run the main React demo
+
+Open two PowerShell terminals in the project folder. Start the API in the first:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn veil.api:app --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in the second:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open `http://127.0.0.1:5173/`. The backend's selected agent mode appears in the chat and same-run workflow evidence.
+
+## Run the Streamlit fallback
 
 From the project folder:
 
@@ -38,18 +62,18 @@ Open the local URL Streamlit prints, usually `http://127.0.0.1:8501`. The demo d
 
 ## Two-minute judge walkthrough
 
-1. For the general-input path, enter a made-up request without a ticket ID. Add a synthetic custom secret in **Other sensitive values to protect** and include it in the message. Enter made-up name, email, and phone values in the structured fields. To show ticket lookup, include `TICKET-DEMO-1042` instead.
-2. Click **Run workflow**. Follow the stages as they are emitted: agent preparation, Veil scan and egress check, helpdesk call, and response restoration.
-3. Point out the answer the agent gives after receiving Veil's restored response.
-4. Open **Show the proof from this workflow**. Compare the agent-prepared request with **What the helpdesk actually received**. The ticket ID remains available on the lookup path; selected contact values and any exact custom values are temporary tokens.
-5. Click **Show blocked example**. Veil's egress check blocks an intentionally missed synthetic email; the timeline marks the helpdesk and later steps as not reached.
-6. If asked about evaluation, run the synthetic benchmark from another terminal:
+1. Enter a made-up ticket request containing `TICKET-DEMO-1042` and synthetic sensitive values. This intake remains limited to known local tickets.
+2. Click **Send message**. Follow the agent proposal, Veil scan and egress check, local helpdesk call, and response restoration. Use the deterministic mode for a repeatable offline walkthrough. Describe Gemini as a live optional path only after one fresh run visibly completes every stage through the final answer.
+3. Open **Show the proof from this workflow** and point to **What the helpdesk actually received**. The ticket ID remains available on the lookup path; detected contact and identifier values are tokens.
+4. In the Streamlit fallback, click **Run synthetic structured payload**. Show the nested request and the exact payload recorded by the generic simulated tool to demonstrate gateway reuse outside the ticket route.
+5. Click **Show blocked example**. The egress check blocks an intentionally missed synthetic value; the timeline marks the helpdesk as not reached.
+6. If asked about measured detection or latency, run the synthetic benchmark:
 
    ```powershell
    .\.venv\Scripts\python.exe -m veil.evaluation
    ```
 
-   Explain that this is a small synthetic set, not proof of universal detection.
+   It reports separate development and held-out synthetic results, per-type TP/FP/FN, precision, recall, F₂, receipt leakage, restoration, and repeated middleware-only latency. Explain that the held-out corpus is still a small fixed synthetic set, not a general or blinded PII benchmark.
 
 ## Checks
 
@@ -62,18 +86,19 @@ Open the local URL Streamlit prints, usually `http://127.0.0.1:8501`. The demo d
 ## Architecture
 
 ```text
-User message and synthetic contact fields
-  → deterministic local agent chooses ticket lookup or support intake
+One synthetic ticket request with a known local ID
+  → deterministic offline agent, or optional Gemini agent using a locally tokenized prompt
   → Veil recursive detector/tokenizer
   → egress verification (fail closed)
   → local simulated helpdesk captures its exact request
   → tokenized response
   → Veil restores known task tokens
-  → trusted agent formats the user-facing answer
+  → selected agent drafts an answer from tokenized tool context
+  → Veil restores known tokens locally for the user-facing answer
 ```
 
 Every tool call passes through `VeilGateway`. A short-lived in-memory token vault is cleared at the end of the workflow. Generated tokens are reversible pseudonyms, not encryption. Audit receipts contain detection metadata and timing, not the original contact values.
 
-The benchmark source is [`data/benchmark.json`](data/benchmark.json), with the latest recorded snapshot in [`benchmark-results.md`](benchmark-results.md). Name recognition has limited coverage, and numeric values can be ambiguous. The egress scan is a second detection pass, not a guarantee against every unknown or obfuscated value.
+The development benchmark is [`data/benchmark.json`](data/benchmark.json); the separate fixed synthetic held-out set is [`data/benchmark-heldout.json`](data/benchmark-heldout.json). [`benchmark-results.md`](benchmark-results.md) records per-type scores, exact receipt scanning, latency methodology, and known false positives. Name recognition has limited coverage, and numeric values can be ambiguous. The egress scan is a second detection pass, not a guarantee against every unknown or obfuscated value.
 
 For project decisions and the current implementation status, see [`context.md`](context.md). For the staged implementation and judge checklist, see [`implementation-plan.md`](implementation-plan.md).
