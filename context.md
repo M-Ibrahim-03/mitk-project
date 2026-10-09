@@ -1,149 +1,183 @@
-# Veil Project Context
+# Veil — Project Context and Agent Handoff
 
-Last updated: 2026-10-09
-Project status: free-form helpdesk flow and event-driven animated proof implemented; next: verify browser access and rehearse on the judging machine
-Timebox: 24-hour hackathon MVP
+Last verified: 2026-10-09
+Project root: `mitk-project`
+Status: Working local Python workflow + React chat page + animated workflow evidence page. The next task is a human browser rehearsal and any small fixes it uncovers.
 
-## 1. Project objective
+> **Start here when opening this repository in another IDE, agent, or chat.** Read this file first, then `implementation-plan.md` and `README.md`. Treat this file's **Current state** and **Next action** as the freshest checkpoint. The plan preserves the original design and implementation sequence; some early Phase 7 paragraphs describe React Flow as the intended graph, while the implemented page uses an accessible CSS-connected node timeline plus Motion. Do not rebuild already working features because a plan paragraph is historical.
 
-Build **Veil**, a local-first privacy gateway for AI agent tool calls. Veil scans outgoing tool payloads, detects selected personally identifiable information (PII), replaces detected values with reversible, request-scoped tokens, prevents unredacted protected values from reaching a simulated external tool, and restores token values in a tool response only when returning that response to the trusted agent.
+## Quick handoff
 
-The implementation must be explainable, easy to demo, and evaluated with synthetic data. It does not need a paid API, hosted model, cloud service, or real external tool.
+Veil is a local-only hackathon prototype of middleware between an AI agent and a tool. A user submits a synthetic helpdesk message to a deterministic local agent. The agent prepares a tool request. Veil detects selected sensitive values, replaces them with temporary reversible tokens, checks the exact outgoing request, and only then passes it to an offline simulated helpdesk. Veil restores known tokens on the trusted response path, and the agent returns an answer. The React chat and workflow pages share the same backend run; the workflow page displays the actual recorded payload at each stage so judges can see what the tool received.
 
-## 2. Original challenge and judging criteria
+The Python workflow, API, React pages, and tests are already implemented. Keep the middleware and local simulated tool as the core of the project; the UI is evidence of that workflow. Do not recreate the MVP, add an external LLM/tool, or replace the tested privacy path.
 
-The hackathon problem asks for middleware or an SDK that intercepts outgoing agent-to-tool payloads, detects multiple PII types in structured and natural-language payloads, tokenizes values reversibly, and restores values in responses when needed. The judging criteria are detection, leakage prevention, restoration, and performance. Only synthetic personal data may be used.
+## Current state and next action
 
-## 3. Product idea
+- **Completed:** pure-Python PII detection and tokenization; recursive JSON/text support; `VeilGateway`; fail-closed egress check; offline helpdesk; deterministic agent; ticket lookup and general support-intake paths; response restoration; synthetic benchmark; Streamlit fallback; FastAPI run API with bounded in-memory run history and replayable SSE; React chat route `/`; React workflow route `/runs/:runId`.
+- **Workflow visualization:** six connected circle-led steps show the original user message, agent's prepared tool request, Veil's protected outgoing payload and egress result, the exact payload captured by the helpdesk and its tokenized reply, Veil's restored response, and the agent's final answer. Tokens are highlighted. A blocked run stops at Veil and marks later tool stages as not reached. Motion respects reduced-motion preferences. Actual backend events are replayed at a readable display pace; the backend is not artificially slowed.
+- **Recent local acceptance check:** a synthetic API run completed with 14 events; audit reported 3 protected values; the helpdesk payload did not contain the planted email; the agent returned an answer. Frontend returned HTTP 200 and backend `/health` returned `ok`. The live workflow view was opened in the Codex browser panel. This confirms the service/data path, but not a person-reviewed visual click-through.
+- **Next action:** open `/` in the local browser, submit a synthetic message, confirm the answer appears, follow **View animated workflow**, and verify that it shows the very same run and clear per-node proof. Fix any visual or integration issue found, test-first, then update this file with exact results. The current page/run ID may have expired; create a fresh run from the chat page.
+- **Current limits:** no clean-clone setup rehearsal has been recorded; browser automation with Edge failed in the sandbox due to browser profile/temp-folder permissions. Do not claim full browser acceptance until the human click-through succeeds. PII recognition is limited and is not guaranteed for arbitrary unknown or obfuscated secrets.
 
-**Name:** Veil — a privacy firewall for AI tool calls.
+## Project origin and decisions
 
-**Pitch:** “Veil sits between AI agents and their tools, replacing personal data with temporary tokens and proving what the tool actually received.”
+### Original problem
 
-The MVP demo should show:
+The hackathon brief shared by the user (Moodlakatte Institute of Technology, Department of CSE) asks for middleware that intercepts agent-to-tool payloads, detects selected PII in text and structured data, replaces values with reversible tokens, blocks leakage, restores values in trusted responses, and demonstrates detection, leakage prevention, restoration, and processing time. The challenge's fairness note requires synthetic personal data only.
 
-1. An agent request containing synthetic PII in natural language and nested JSON.
-2. Detected entity type, confidence, and JSON path.
-3. A tokenized payload captured by a local simulated tool.
-4. A returned token restored before the response goes back to the trusted agent.
-5. An audit receipt showing detections, leakage count, restoration accuracy, and added latency.
+### Product purpose
 
-## 4. Scope and decisions
+**Veil** is a privacy firewall for local agent tool calls. The judging story is: “The agent can work with a tool while Veil controls which sensitive values cross the tool boundary, and the audience can inspect what the tool actually received.” The prototype is designed for a 24-hour hackathon and should be easy to run and explain.
 
-- **Local-only demo.** Use a simulated tool and synthetic fixtures; make no real tool or LLM API calls.
-- **Stack:** Python, FastAPI, pure-Python local recognizers, Streamlit, and pytest. Presidio is a possible optional enhancement, not required by the runnable baseline.
-- **PII scope:** email, phone number, person name, and a synthetic student/account ID pattern. Do not use real or valid personal identifiers in examples. Use regex/validation for structured IDs and contact details, plus context-aware patterns and a small fictional-name lexicon for names. Clearly document that person-name detection is the least reliable recognizer.
-- **Payload scope:** JSON objects and arrays; recursively scan string values, including free text embedded in those values. Preserve keys, non-string values, types, and JSON shape.
-- **Token mapping:** reuse the same token for duplicate values inside one task so cross-field relationships remain intact. Keep the map in memory for that task only and clear it at task completion.
-- **Egress guard:** verify the sanitized outgoing payload before the mock tool receives it. Block on residual detections or gateway errors. The synthetic evaluation harness also checks outgoing payloads against planted ground-truth values.
-- **Response restoration:** hydrate tokens only on the trusted return path to the agent, never in the payload sent to the simulated external tool.
-- **Audit log:** store entity type, JSON path, confidence, token ID, decision, and timing. Do not log raw PII values.
-- **Limitations:** this MVP protects the evaluated text/JSON payload scope. It does not promise detection of all PII, languages, encodings, images, audio, or obfuscation styles. A real tool that requires raw PII to perform its task needs a trusted service boundary; an opaque token alone cannot provide the original value to that tool.
+### Decisions made with the user
 
-## 5. Success criteria
+1. Keep the complete demonstration local and deterministic. Do not use a paid model, hosted LLM, external tool, cloud service, or external telemetry.
+2. Keep three real workflow components: user-facing local agent, Veil middleware/gateway, and offline simulated helpdesk. A polished UI alone is not the deliverable; the Python request/response path is the MVP.
+3. Provide two coordinated user surfaces: a simple chat page for sending a request and seeing the agent's answer, and a separate visual workflow page that proves how that exact run moved through the system.
+4. The user may type a free-form synthetic prompt and supply synthetic contact fields. Current automatic detection is limited to selected patterns. Users can explicitly list exact synthetic values in the legacy Streamlit flow when needed; do not imply that the React UI detects every possible secret.
+5. The workflow view should be visual-first. The user provided a three-exhibit comparison image as inspiration only and explicitly said not to copy it. They requested connected circular nodes, with each node showing the message/payload and what that stage did. The implementation uses a distinctive six-step timeline rather than the image's exhibit-card layout.
+6. Keep the existing Streamlit demo as a fallback while the React path is rehearsed. The React frontend and the Streamlit fallback use the same Python workflow code; the React UI calls the FastAPI run API.
+7. Preserve test-first development for behavioral changes. Keep `context.md` updated after meaningful steps. Explain instructions simply and give concrete Windows/PowerShell commands.
 
-- Every mock tool call goes through the gateway.
-- Multiple PII types are detected in nested structured fields and natural-language strings.
-- Replacements preserve payload shape and duplicate-value linkage.
-- The mock tool receives no planted original values in the benchmark cases.
-- A tokenized mock response can be mapped back to the correct original value on the trusted return path.
-- The app reports detection recall, false positives, leakage count, restoration accuracy, and p50/p95 added latency.
-- A reviewer can run the app and its documented checks locally without paid credentials.
+## How the application works
 
-## 6. 24-hour delivery plan
+```text
+User in React chat
+  → POST /api/runs (one run_id)
+  → FastAPI worker runs the local agent + VeilGateway + simulated helpdesk
+  → agent prepares ticket lookup or support-intake call
+  → Veil detects and tokenizes selected values
+  → egress verifier checks the tool-bound payload; unsafe/error paths stop here
+  → offline helpdesk captures the exact received payload and returns a tokenized reply
+  → Veil restores known values on the trusted path back to the agent
+  → agent creates the answer shown in chat
+  → workflow page reads/replays this same run's events and artifacts
+```
 
-### Phase 0 — Scope and setup (hour 0–1)
-- Confirm local Python setup and create the project scaffold.
-- Freeze the PII types, synthetic fixtures, and acceptance criteria.
-- Make `context.md` the project’s persistent source of truth.
+The deterministic agent selects ticket lookup when it finds a supported `TICKET-...` value; otherwise it submits a general support request. It is intentionally not a hosted AI model. Both tools are simulated locally. The helpdesk capture is the ground truth for what left the Veil boundary.
 
-### Phase 1 — Detection and token vault (hours 1–5)
-- Implement pure-Python recognizers for email, phone, person-name patterns, and a custom synthetic ID.
-- Implement recursive JSON traversal and span-safe replacement.
-- Add a per-task reversible token map and metadata-only audit events.
+### API and run storage
 
-### Phase 2 — Gateway, mock tool, and egress check (hours 5–8)
-- Wrap the tool dispatcher so every call is sanitized.
-- Add a local mock tool that records exactly what it received.
-- Verify the sanitized request and block it if protected values remain.
-- Implement trusted-path response restoration.
+- `GET /health` — local API health.
+- `POST /api/runs` — accepts one message and requester fields, creates one run ID, and schedules the existing workflow.
+- `GET /api/runs/{run_id}` — returns that run's status, ordered events, artifacts, tool payload/response, restored response, answer, and audit summary.
+- `GET /api/runs/{run_id}/events` — replayable Server-Sent Events stream; numeric event IDs and `Last-Event-ID` support reconnect.
+- Existing `/tool-call` endpoint and Streamlit application remain in the codebase; do not route the judge flow around `VeilGateway`.
 
-### Phase 3 — Demo interface (hours 8–11)
-- Create a Streamlit page with sample scenarios, findings, outbound payload, mock-tool receipt, returned response, and metrics.
-- Keep the original-value view limited to the synthetic demo input; never put raw values into audit logs.
+Run records are held in a process-local, thread-safe store, capped at 100 runs, and terminal records expire after 15 minutes. A server restart clears them, and separate backend worker processes would not share them. The token vault is task-scoped and is not kept in the run store. Workflow evidence intentionally includes the synthetic original request for the local judge view; do not log raw PII or ever encourage entry of real data.
 
-### Phase 4 — Evaluation (hours 11–15)
-- Add a labelled synthetic test set for common, nested, duplicate, punctuation, and selected hard cases.
-- Calculate recall, false positives, leakage, restoration accuracy, and p50/p95 latency.
-- Document known misses and false positives.
+## Privacy scope and failure cases
 
-### Phase 5 — Polish and presentation (hours 15–18)
-- Add setup instructions, architecture explanation, and a short demo script.
-- Make the happy-path demo reliable and inspectable.
+- Baseline recognizers cover selected email, phone, synthetic ID, contextual/person-name patterns, and explicit exact custom values in flows that accept them. JSON objects/arrays are recursively scanned in the Python payload layer.
+- Token strings are reversible **pseudonyms**, not encryption. The original-to-token map is held only for the active workflow and used to restore the trusted response.
+- The gateway verifies the outgoing sanitized payload before calling the simulated tool and fails closed on residual detections or processing/tool errors. A blocked trace must not show a helpdesk receipt or fabricate a response.
+- Name detection is the least reliable recognizer. Unknown secrets, ambiguous numbers, other languages, image/audio content, and obfuscation may be missed. A user-supplied exact value can cover an unsupported secret only where that feature is exposed.
+- Do not describe Veil as a universal PII detector, as cryptographic encryption, or as production security. A real tool that needs the original value requires a trusted service boundary; a token alone cannot let an external system act on the hidden value.
+- Keep all examples synthetic. Avoid putting raw values in logs, error details, test output, screenshots intended for public use, or external requests.
 
-### Buffer and rehearsal (hours 18–24)
-- Fix integration issues, rehearse on the actual demo machine, and keep the remaining time as contingency.
+## Repository map
 
-## 7. Development environment assumptions
+- `veil/detection.py`, `payload.py`, `token_vault.py` — local detection, recursive payload handling, and per-run reversible tokens.
+- `veil/gateway.py` — mandatory sanitize/verify/tool/restore boundary and audit metadata.
+- `veil/demo_agent.py`, `demo_flow.py`, `helpdesk.py`, `mock_tool.py` — deterministic agent, workflow orchestration/events, simulated helpdesk/tools.
+- `veil/api.py`, `run_registry.py` — FastAPI endpoints, worker orchestration, bounded run history, replayable SSE.
+- `veil/demo.py` — Streamlit fallback using the same workflow.
+- `frontend/src/pages/ChatPage.tsx` — request form and actual agent answer.
+- `frontend/src/pages/WorkflowPage.tsx` — connected six-node evidence timeline, Motion animation, run replay.
+- `frontend/src/api.ts`, `App.tsx`, `styles.css` — backend client, routes, and visual styles.
+- `tests/` — Python unit/integration/API and Streamlit tests.
+- `frontend/src/**/*.test.ts(x)` — React/API/UI behavior tests.
+- `data/benchmark.json`, `benchmark-results.md` — synthetic benchmark corpus and a historical run snapshot. Re-run before presenting fresh benchmark metrics.
+- `README.md` — user-facing overview, demo script, and original Streamlit instructions.
+- `implementation-plan.md` — detailed project history and staged plan. Consult it for rationale/checklists, but use this file for actual present status.
 
-- Host: Windows with PowerShell, using the shared project directory.
-- Preferred primary IDE agent: Codex in this workspace. Antigravity or Claude Code may be used, but only one agent should modify the repository at a time.
-- Python target: 3.11 if available; compatible Python 3.10+ is acceptable if dependency setup requires it.
-- Run everything locally. Hosting is optional and outside the zero-cost MVP requirement.
-- Environment note: the standard `python` launcher is unavailable. The Codex bundled Python 3.12.14 works and a project `.venv` was created. The installed spaCy native extension is blocked by the environment's Application Control policy, so the baseline must not require or import spaCy/Presidio. Keep all baseline detection in pure Python; revisit Presidio only if a supported interpreter/runtime can load it without changing security policy.
+### Important visual implementation detail
 
-## 8. AI-agent continuity protocol
+`implementation-plan.md` originally proposed React Flow (`@xyflow/react`). The implemented workflow view instead uses a semantic ordered list, CSS connector rail, circular status markers, and Motion animations. `@xyflow/react` remains in `frontend/package.json` but is not needed by the current component. This is an intentional simpler responsive rendering of the user's requested connected-node visual. Do not migrate it to React Flow just to match the old plan. If a later visual redesign is proposed, inspect the current page and get the design right before implementing.
 
-Every coding agent must:
+## Run locally on Windows
 
-1. Read this file before making changes.
-2. Follow the current milestone and keep changes within MVP scope.
-3. Use synthetic data only; never add real personal or confidential data.
-4. Never make external API calls or send sample payloads to external services.
-5. Run the checks explicitly requested for the current milestone and report exact commands/results; do not claim unrun checks passed.
-6. At the end of a work session, update **Current status**, **Next action**, and the **Decision/progress log** below. Preserve the earlier context and append meaningful changes rather than replacing project history.
-7. Report changed files, setup issues, tests/checks, and remaining blockers in plain language.
+Use Node 20.19+ (or 22.12+); the verified workspace used Node 24.21.0/npm 11.19.0 and Python 3.12.14. From the repository root, open two PowerShell terminals.
 
-## 9. Current status
+**Terminal 1 — API:**
 
-- User approved the Veil direction, requested a step-by-step 24-hour build plan, AI IDE prompts, checklists, and a persistent context file.
-- The workspace initially contained only `outputs/` and `work/`; it now contains the working MVP source, docs, synthetic fixture set, and tests.
-- A project `.venv` exists using Codex's bundled Python 3.12.14. `pip check` reports no broken requirements. Core imports succeed.
-- Presidio/spaCy installation was explored but the environment's Application Control policy blocks spaCy's native extension. The shipped baseline is pure Python; the policy was not bypassed.
-- Implemented recursive structured/text detection, reversible task-scoped tokenization, the gateway, mock tool, egress gate for values/keys/tool name, trusted-path restoration, FastAPI endpoints, Streamlit demo, and benchmark.
-- `implementation-plan.md` has copy/paste prompts for each phase, setup instructions, verification checklists, and a demo narration.
-- Final checks: `python -m pytest -q` → **18 passed**; `python -m pip check` → **No broken requirements found**; `python -m veil.evaluation` → 7 cases, 20/20 planted instances detected, 0 false positives, 0 leakage, 20/20 token occurrences restored, p50 0.163 ms, p95 0.322 ms. The Streamlit AppTest demo flow passed: egress allowed with zero leakage and the mock response restored exactly.
-- Recorded evaluation snapshot: `benchmark-results.md`.
-- User-facing source bundle is available at `outputs/veil-mvp-source.zip` (22 files; `.venv` and scratch files excluded; ZIP integrity checked).
-- No decision is needed from the user before beginning local setup.
-- The project folder is now `mitk-project` after the user renamed the root and cloned it to another system.
-- Updated the Streamlit demo to guide reviewers through choosing a sample, protecting it, and reading a plain-language result. Technical request/response JSON is now optional in an expander; changing the sample clears stale results and loads that sample's own editable payload.
-- Replaced the raw benchmark JSON view with readable metrics for detection, false alarms, originals sent, restoration, p50/p95 processing time, and sample count. The screen clearly states that this is a small synthetic test set.
-- Added three UI behavior tests and `pytest.ini` (`testpaths = tests`) so pytest does not collect duplicate tests from the source bundle under `outputs/`.
-- Verification after the UI update: `uv run --no-project --python .\\.venv\\Scripts\\python.exe python -m pytest -q` → **21 passed**; `python -m veil.evaluation` → 20/20 planted details detected, 0 false alarms, 0 leakage, 20/20 restored, p50 0.094 ms, p95 0.237 ms across 7 cases; `pip check` → no broken requirements.
-- `uv` was installed into this workspace's ignored `.venv` for verification. In this restricted Windows environment, its cache must point to `work/uv-cache`; the regular `uv run pytest --last-failed` form is not usable without project metadata, so the verified invocation uses `--no-project` and the existing venv Python explicitly. `uv` is not installed globally on a fresh clone.
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn veil.api:app --host 127.0.0.1 --port 8000 --reload
+```
 
-### Next action
+If `.venv` already exists, skip the venv creation and dependency installation. If the Python launcher `py` is unavailable, install Python 3.12 and use `python -m venv .venv` once. Do not start a second backend if port 8000 is already in use; check `http://127.0.0.1:8000/health`.
 
-Phase 6 tasks 6.1–6.4 are implemented and tested. The local deterministic agent selects ticket lookup when a supported ticket ID is present and general support intake otherwise. Users may list exact additional synthetic secrets that the middleware tokenizes alongside detected email, phone, ID, and name patterns. Both routes pass through VeilGateway; the helpdesk records the exact tokenized request and echoes tokens; Veil restores them for the agent. The single-screen UI has a responsive pulsing timeline driven by real workflow events, a run-specific helpdesk proof panel, success/blocked states, and stale-result clearing. A token-format regression was fixed by adding a guaranteed alphabetic marker. Full suite: 37 passed; required `pytest --last-failed`: 37 passed; evaluation: 20/20 planted instances detected/restored, zero false positives/leakage, p50 0.104 ms, p95 0.286 ms over 7 synthetic cases. Streamlit printed `http://127.0.0.1:8502`, but PowerShell could not connect to loopback from this execution environment; AppTests cover both routes and the blocked flow. Next: verify browser access and rehearse success/blocked paths on the actual judging machine. Veil still cannot guarantee automatic discovery of every secret; exact custom values must be listed when outside its recognizers. Keep all data synthetic and call tokens reversible pseudonyms, not encryption.
+**Terminal 2 — React UI:**
 
-## 10. Decision/progress log
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
 
-- 2026-10-09: Chose Veil as a local-first reversible PII gateway with a mock tool, request-scoped token vault, egress verification, trusted-path restoration, and measurable synthetic evaluation.
-- 2026-10-09: Chose Python + FastAPI + Streamlit to keep the MVP in one language and avoid paid services.
-- 2026-10-09: Setup check found spaCy's compiled extension blocked by Application Control in this environment. Revised the runnable baseline to pure-Python recognizers and kept Presidio optional; do not weaken/bypass the system policy.
-- 2026-10-09: Created `.venv` with bundled Python 3.12.14. Installing into the venv initially hit a restricted temp-folder issue; using `work/pip-tmp` and `work/pip-cache` resolved it. Installed base requirements; `pip check` and core imports pass.
-- 2026-10-09: Completed the gateway, mock tool, egress verification, trusted-path restoration, Streamlit walkthrough, seven-case synthetic benchmark, README, and benchmark snapshot. Added structured name-field context support and egress checks for JSON keys/tool name. Final automated suite: 18 passed; no broken package requirements.
-- 2026-10-09: Packaged the source and handoff docs in `outputs/veil-mvp-source.zip`; verified the ZIP opens and all 22 archived files pass integrity checks.
-- 2026-10-09: Reworked the Streamlit screen for nontechnical reviewers: guided three-step flow, simpler sample names, optional advanced JSON/details, plain-language safety status, and a benchmark scorecard. Added tests for the result explanation, scorecard labels, and loading the correct sample after switching. Configured pytest to collect only the main `tests/` folder because the packaged source copy caused duplicate-module collection errors. Verification: 21 tests pass; the synthetic benchmark reports 20/20 detection/restoration and zero leakage/false alarms.
-- 2026-10-09: Added a deterministic local agent and simulated campus helpdesk ticket lookup for the judging story. The tool receives the ticket ID and tokenized contact details; it echoes tokens in its response so Veil restores the synthetic name, email, and phone before the agent replies. Added a clearly labeled blocked-path demonstration with a test-only/demo-only injected first-scan miss, proving the egress verifier blocks before tool dispatch. Added the on-screen four-step timeline and tests for both the success and blocked paths. Updated README with uv setup/run commands and the two-minute judging script. Verification: `uv run --no-project --python .\.venv\Scripts\python.exe python -m pytest -q` → 26 passed; `uv run --no-project --python .\.venv\Scripts\python.exe python -m veil.evaluation` → 7 cases, 20/20 planted details detected, 0 false positives, 0 leakage, 20/20 token occurrences restored, p50 0.094 ms, p95 0.207 ms. Benchmark remains synthetic and limited.
-- 2026-10-09: User requested that project setup and run instructions use standard Python/pip rather than uv. Updated README and benchmark instructions to use Python's built-in venv, pip, and direct Python commands. Verified using `.venv\Scripts\python.exe`: `-m pip install -r requirements.txt` completed, `-m pytest --last-failed` → 26 passed, benchmark → 20/20 detected, 0 leakage, 18/18 counted token occurrences restored, p50 0.100 ms, p95 0.219 ms, and Streamlit started locally at `http://127.0.0.1:8501`. These verification commands used Python/pip without uv. The clean `py -3.12 -m venv .venv` setup command was not run because this workspace already has a working `.venv`.
-- 2026-10-09: Expanded Phase 6 in `implementation-plan.md` for a request-driven user → local agent → Veil → helpdesk → Veil restoration → agent answer workflow, with an event-driven animated single-screen UI. Specified the event contract, actual tool-boundary evidence, fail-closed presentation, vault cleanup, no-fake-delay rule, TDD tasks and gates, acceptance checklist, direct Python commands, and copy/paste implementation prompt. No application code was changed in this planning step. Verification: `.venv\Scripts\python.exe -m pytest --last-failed` → 26 passed; `git diff --check` → clean.
-- 2026-10-09: Completed Phase 6 task 6.1 test-first. Added a typed request contract for a user message and structured contact details; made the local agent extract/normalize the ticket ID and prepare the lookup call from those values; added a safe missing-ticket-ID error and tests for answer formatting. The new test first failed on the absent interface, then passed after implementation. Verification: `.venv\Scripts\python.exe -m pytest -q tests/test_demo_agent.py` → 4 passed; `.venv\Scripts\python.exe -m pytest -q` → 30 passed. Next action is task 6.2 integration tests and flow wiring.
-- 2026-10-09: Completed Phase 6 task 6.2 test-first. Added successful/blocked workflow tests and an observer callback test before wiring the flow. `run_ticket_demo` now accepts the typed user request, prepares the call using the request-driven agent, passes all arguments through `VeilGateway`, captures the actual payload received by the simulated helpdesk, and returns ordered events and final answer. `VeilGateway` now emits progress callbacks for scan, egress, helpdesk dispatch/response, and restoration; the blocked trace has no downstream tool events. Focused tests: 3 flow tests passed; full suite: 33 passed; `git diff --check` clean.\n- 2026-10-09: Completed Phase 6 task 6.3 test-first. Added detector-crash and helpdesk-crash tests first; both failed against the previous uncaught-exception behavior. Gateway now returns blocked/failed receipts, omits unsafe unverified payloads, avoids including exception text in results, emits failure stage events, and never fabricates a tool response. Focused gateway tests: 11 passed; full suite: 35 passed. One initial full-suite run had a transient Streamlit UI test status mismatch; the required `pytest --last-failed` rerun passed that test, and a fresh full run passed all 35. `git diff --check` clean. Next action: Phase 6 task 6.4 UI integration.
+Open `http://127.0.0.1:5173/`, submit a fully synthetic request, read the agent answer, then click **View animated workflow**. The Vite dev server proxies `/api` to `127.0.0.1:8000`. No API keys or internet service are needed at runtime; npm dependency installation may need package access on a clean machine.
 
-- 2026-10-09: Completed Phase 6 task 6.4 test-first. Replaced the two-tab judge-facing UI with one request-driven helpdesk workflow, synthetic message/name/email/phone fields, a four-stage timeline updated by actual workflow callbacks, success/blocked states, reset and stale-result clearing, and an expandable proof panel labeled 'What the helpdesk actually received'. AppTests verify custom inputs, exact captured tokenized tool payload, event order, restored agent answer, and blocked flow with no helpdesk event. During full-suite verification, a random token occasionally matched the phone recognizer; added a deterministic failing regression test and a guaranteed alphabetic marker in generated tokens. Focused UI/payload tests: 8 passed; 200 workflow repetitions: 200 allowed; full suite: 33 passed. Next action: Phase 6 task 6.5 launch rehearsal and handoff.
+**Optional Streamlit fallback, in a third terminal from the repo root:**
 
-- 2026-10-09: Expanded the demo to match the user's free-form workflow goal. Test-first changes add a generic support-intake tool path when there is no ticket ID, exact user-marked custom sensitive values, and an echoed response that Veil restores before the agent answers. The UI accepts any synthetic message and optional exact extra values. Added a responsive pulsing event timeline with reduced-motion support; events alone drive state and no delays were added. Updated README and implementation-plan judge instructions. Focused tests: 22 passed; full suite: 37 passed; `pytest --last-failed`: 37 passed; evaluation: 20/20 detected, 0 false positives, 0 leakage, 20/20 restored, p50 0.104 ms, p95 0.286 ms. Streamlit startup printed `http://127.0.0.1:8502`; shell loopback verification failed in this environment, so browser rehearsal remains for the judging machine.
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run veil/demo.py --server.address 127.0.0.1
+```
 
-- 2026-10-09: Responded to the user's broader target with a general support-request tool path for messages without a ticket ID, while preserving the existing ticket lookup path. Added optional exact synthetic-value protection: the user lists one value per line; Veil replaces it wherever it occurs and restores the echoed value on the trusted path. Added AppTests and unit/integration tests before implementation. The UI now uses a responsive gradient timeline with active-stage pulse, completed/blocked/failed states, and reduced-motion support; event callbacks drive each update without artificial delays. Updated README and the next-session prompt to describe actual scope and limits. Verification: focused 22 passed; full suite 37 passed; `pytest --last-failed` 37 passed; synthetic benchmark 20/20 detected/restored, 0 false positives/leakage, p50 0.104 ms, p95 0.286 ms. Streamlit starts and prints port 8502, but localhost probing from this shell failed; judging-machine browser rehearsal remains open.
+Open the local URL Streamlit prints, usually `http://127.0.0.1:8501`.
+
+## Verification checkpoint
+
+Most recent checks after the handoff update:
+
+- `.venv\Scripts\python.exe -m pytest --last-failed` — **44 passed, 1 warning**; the warning is Starlette's deprecation notice about `httpx` in `TestClient`.
+- In `frontend/`, `npm test -- --run` — **9 passed across 4 files**.
+- In `frontend/`, `npm run build` — **passed** (TypeScript and Vite production build).
+- `git diff --check` — clean after removing Markdown whitespace; Git may print a non-failing LF-to-CRLF warning for `veil/api.py`.
+- Local integration rehearsal — frontend HTTP 200, API health `ok`, one synthetic run completed, the test email was absent from captured helpdesk payload, and the local agent answered.
+
+These checks were run in the current working environment; no claim is made that a fresh clone has been tested. `uv run pytest --last-failed` was attempted after this update but failed because `uv` is not installed (`uv` is not recognized by PowerShell); the `.venv` interpreter fallback above passed. The user previously reported the same problem on a cloned machine and explicitly asked for a direct Python environment workflow, while the user-provided agent instructions request `uv`. Inspect the active IDE instructions and available tools in the new environment; use the verified `.venv` command here when `uv` is unavailable.
+
+## Project history
+
+This is the concise project history so a new session can continue without the original conversation:
+
+1. The user shared the hackathon prompt and asked for an easy explanation, a free 24-hour MVP idea, and a winning demonstration concept. We chose Veil: local privacy middleware around agent-to-tool calls.
+2. The user requested a persistent `context.md`, implementation plan, IDE prompts, checklists, and test-after-each-feature workflow. The project was built in Python using synthetic data only; paid APIs were excluded.
+3. The core MVP added PII recognizers, recursive payload processing, reversible task-scoped tokens, gateway dispatch, egress checks, mock/simulated tools, response hydration, evaluation, and a Streamlit demonstration. Presidio/spaCy was not made a required dependency because the available environment blocked its native extension.
+4. The user asked for an agent and helpdesk tool, not just a privacy dashboard. The app gained a deterministic local agent and a request-driven helpdesk scenario. It supports ticket lookup and general support intake, with synthetic contact data and a blocked-path example.
+5. The user clarified they wanted two UIs: a simple place to message the agent and a visually rich separate workflow page over the exact same run. We selected React + TypeScript + Vite for those pages and retained the Streamlit screen as fallback. FastAPI exposes run creation, snapshots, and SSE events.
+6. The user requested animated circular nodes that show each stage's message and action, especially Veil protection and the actual tool-bound data. A reference exhibit table was supplied as inspiration only. The final six-node timeline makes the real artifacts visible, highlights token strings, shows helpdesk capture and trusted restoration, and handles blocked egress visibly.
+7. Current implementation is in place and automated checks pass. A local synthetic run verified API-to-tool leakage prevention; the outstanding handoff is a human visual rehearsal from chat submission through the same run's workflow page.
+
+## Agent workflow and user preferences
+
+- Start by reading `context.md`, `implementation-plan.md`, `README.md`, and any actual `AGENTS.md`/IDE instruction files. Confirm current files/state before editing.
+- The user expects plain-language explanations and practical steps. The user's main criterion is a working and judge-understandable workflow; visual polish supports that demonstration.
+- Before proposing or implementing a feature, stress-test the idea against the already-settled requirements: same workflow run on both pages, real event/artifact evidence, local-only behavior, clear blocked path, and data protection. Ask only if an unresolved choice materially changes the implementation.
+- For behavior/code changes, write a focused test first, observe the expected failure, implement the smallest vertical slice, then run focused checks and the full relevant suite. After each change, update this file with what passed and the next action.
+- Do not use external APIs or send payloads to web services. Do not use real personal or confidential data. Do not output raw synthetic contact values unnecessarily.
+- Keep existing work. The checkout currently contains uncommitted and untracked implementation files. Inspect `git status` and diffs before editing; never reset/clean them as a shortcut.
+- Do not claim the human browser rehearsal, clean-clone install, or fresh benchmark passed unless actually completed.
+
+### Suggested skills for an incoming agent
+
+- Use the TDD skill for any application behavior or bug fix.
+- Use systematic debugging for an observed broken run or integration issue.
+- Use verification-before-completion before claiming a change or check is complete.
+- Use writing-for-agents when changing this handoff or other instructions.
+- Use plan/execution skills only if the next work grows beyond the single browser-rehearsal step.
+
+## Ready-to-paste first prompt for a new IDE or chat
+
+```text
+We are continuing the existing Veil hackathon project. First read context.md, implementation-plan.md, README.md, and any actual AGENTS.md instructions. Treat context.md's Current state and Next action as the live checkpoint; do not recreate the MVP or blindly follow an older plan section. Inspect git status and preserve all existing modifications.
+
+The goal is a local-only demo: synthetic user message → deterministic local agent → Veil middleware/tokenization and fail-closed egress check → offline simulated helpdesk → trusted response restoration → agent answer. The React chat page and animated workflow page must represent the same backend run. The workflow page uses six connected circle-led steps and must show actual per-stage evidence, especially Veil's protected payload and the exact payload the helpdesk received. Motion is used for animation; the current graph is a responsive CSS-connected semantic timeline, not React Flow.
+
+The Python workflow, FastAPI run API/SSE, React chat and evidence pages, Streamlit fallback, and tests already exist. The next task is the human browser rehearsal documented in context.md: run/open the local API and frontend, submit synthetic text from `/`, verify the answer, open that run's workflow page, and confirm that node contents and token/leak proof are understandable. The old run ID may have expired, so create a fresh run. If you find a defect, report the smallest useful fix, add a regression test first, implement it, run the relevant tests/build, and update context.md with exact results and next action.
+
+Use synthetic data only. Keep all processing local; no hosted LLM, outside tool, external telemetry, or network submission of user data. Do not put raw PII in logs. Tokens are reversible pseudonyms, not encryption, and detection is limited rather than universal. Explain steps in simple terms and give exact Windows/PowerShell commands when useful.
+```

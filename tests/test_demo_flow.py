@@ -92,6 +92,13 @@ def test_flow_notifies_observer_with_the_events_from_the_actual_run() -> None:
     assert observed_events[-1].artifact == run.agent_answer
 
 
+def test_workflow_accepts_api_run_id_for_shared_event_identity() -> None:
+    run = run_ticket_demo(request=make_request(), run_id="api-run-123")
+
+    assert run.run_id == "api-run-123"
+    assert all(event.run_id == "api-run-123" for event in run.events)
+
+
 
 def test_free_form_message_and_user_marked_secret_cross_gateway_and_restore() -> None:
     message = "Please check this synthetic case phrase ZQX-731 for Riley Sample."

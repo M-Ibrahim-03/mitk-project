@@ -63,6 +63,7 @@ class TicketDemoRun:
 def run_ticket_demo(
     request: AgentRequest | None = None,
     *,
+    run_id: str | None = None,
     show_blocked_path: bool = False,
     additional_sensitive_values: tuple[str, ...] = (),
     on_event: WorkflowEventCallback | None = None,
@@ -73,7 +74,7 @@ def run_ticket_demo(
         message=DEMO_USER_REQUEST,
         requester=RequesterDetails(**DEMO_REQUESTER),
     )
-    run_id = uuid4().hex
+    run_id = run_id or uuid4().hex
     events: list[WorkflowEvent] = []
 
     def emit(
