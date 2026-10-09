@@ -1,7 +1,7 @@
 # Veil Project Context
 
 Last updated: 2026-10-09
-Project status: MVP implemented, demo UI improved, and verified
+Project status: MVP and fixed helpdesk demo implemented; next milestone planned: user-driven workflow with live visual proof
 Timebox: 24-hour hackathon MVP
 
 ## 1. Project objective
@@ -125,7 +125,7 @@ Every coding agent must:
 
 ### Next action
 
-The guided UI and benchmark scorecard are implemented and verified. Next, rehearse the presentation flow on the judging computer and consider adding a safe, clearly labeled fail-closed demo scenario. Increase benchmark diversity before making broader detection claims. Do not present the current 20-instance synthetic benchmark as proof of universal coverage.
+The fixed synthetic helpdesk ticket story, gateway, captured tool-boundary proof, response restoration, and blocked-path example are implemented. The user asked to extend this into a request-driven end-to-end run and make the primary screen animate the actual workflow as judge-facing proof. The detailed Phase 6 plan is in `implementation-plan.md`. Next: follow Phase 6 task 6.1 test-first, then proceed through its gates in order. Keep the app local, deterministic, synthetic-only, and use direct Python/pip commands. The primary UI should show only this workflow; keep benchmark reporting in CLI/docs. Do not describe tokenization as encryption or the small synthetic benchmark as universal coverage.
 
 ## 10. Decision/progress log
 
@@ -136,3 +136,6 @@ The guided UI and benchmark scorecard are implemented and verified. Next, rehear
 - 2026-10-09: Completed the gateway, mock tool, egress verification, trusted-path restoration, Streamlit walkthrough, seven-case synthetic benchmark, README, and benchmark snapshot. Added structured name-field context support and egress checks for JSON keys/tool name. Final automated suite: 18 passed; no broken package requirements.
 - 2026-10-09: Packaged the source and handoff docs in `outputs/veil-mvp-source.zip`; verified the ZIP opens and all 22 archived files pass integrity checks.
 - 2026-10-09: Reworked the Streamlit screen for nontechnical reviewers: guided three-step flow, simpler sample names, optional advanced JSON/details, plain-language safety status, and a benchmark scorecard. Added tests for the result explanation, scorecard labels, and loading the correct sample after switching. Configured pytest to collect only the main `tests/` folder because the packaged source copy caused duplicate-module collection errors. Verification: 21 tests pass; the synthetic benchmark reports 20/20 detection/restoration and zero leakage/false alarms.
+- 2026-10-09: Added a deterministic local agent and simulated campus helpdesk ticket lookup for the judging story. The tool receives the ticket ID and tokenized contact details; it echoes tokens in its response so Veil restores the synthetic name, email, and phone before the agent replies. Added a clearly labeled blocked-path demonstration with a test-only/demo-only injected first-scan miss, proving the egress verifier blocks before tool dispatch. Added the on-screen four-step timeline and tests for both the success and blocked paths. Updated README with uv setup/run commands and the two-minute judging script. Verification: `uv run --no-project --python .\.venv\Scripts\python.exe python -m pytest -q` → 26 passed; `uv run --no-project --python .\.venv\Scripts\python.exe python -m veil.evaluation` → 7 cases, 20/20 planted details detected, 0 false positives, 0 leakage, 20/20 token occurrences restored, p50 0.094 ms, p95 0.207 ms. Benchmark remains synthetic and limited.
+- 2026-10-09: User requested that project setup and run instructions use standard Python/pip rather than uv. Updated README and benchmark instructions to use Python's built-in venv, pip, and direct Python commands. Verified using `.venv\Scripts\python.exe`: `-m pip install -r requirements.txt` completed, `-m pytest --last-failed` → 26 passed, benchmark → 20/20 detected, 0 leakage, 18/18 counted token occurrences restored, p50 0.100 ms, p95 0.219 ms, and Streamlit started locally at `http://127.0.0.1:8501`. These verification commands used Python/pip without uv. The clean `py -3.12 -m venv .venv` setup command was not run because this workspace already has a working `.venv`.
+- 2026-10-09: Expanded Phase 6 in `implementation-plan.md` for a request-driven user → local agent → Veil → helpdesk → Veil restoration → agent answer workflow, with an event-driven animated single-screen UI. Specified the event contract, actual tool-boundary evidence, fail-closed presentation, vault cleanup, no-fake-delay rule, TDD tasks and gates, acceptance checklist, direct Python commands, and copy/paste implementation prompt. No application code was changed in this planning step.

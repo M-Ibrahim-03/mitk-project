@@ -4,29 +4,22 @@ Veil is a local-first hackathon MVP that protects synthetic personal information
 
 ## What the MVP demonstrates
 
+- A local, deterministic agent asking a simulated campus helpdesk for a fictional ticket update.
+- A complete judge-facing flow: agent request → Veil tokenization and egress check → exact payload captured by the helpdesk → tokenized tool reply → restored answer for the agent.
+- A separate teaching example that deliberately makes the first scan miss an email so the outgoing verifier visibly blocks the request before tool dispatch.
 - Email, formatted and unformatted phone numbers, a synthetic student ID pattern, and selected person names in natural-language strings and labelled name fields.
 - Recursive scanning of JSON objects and arrays while preserving keys, non-string values, and payload shape.
 - Reuse of the same token for repeated values inside one task.
 - Egress verification of payload values, object keys, and tool name. A failed verification blocks the simulated tool call.
 - A local mock tool that captures exactly what it receives and echoes a response for restoration.
-- A guided, three-step Streamlit demo for nontechnical reviewers, with technical payload details available on demand.
+- A guided Streamlit demo for nontechnical reviewers, with technical payload details available on demand.
 - A plain-language benchmark scorecard for detection, false alarms, leakage, restoration, and processing time.
 
 Person-name recognition uses context patterns and a small fictional-name lexicon. It is less comprehensive than a full NLP NER model. The project keeps its baseline pure Python because the current Windows execution environment blocks spaCy's compiled extension under its Application Control policy. Veil does not bypass that policy.
 
 ## Setup
 
-### Existing project workspace
-
-The current workspace has a local `.venv` based on Python 3.12.14. In PowerShell, install/update dependencies with:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-### New machine or checkout
-
-Install Python 3.10 or newer, then from the project directory:
+Install Python 3.12, then open PowerShell in the project directory:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -35,14 +28,14 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-If the `py` launcher is unavailable but `python` is installed, use `python -m venv .venv` instead. If PowerShell blocks environment activation, invoke `.\.venv\Scripts\python.exe` directly.
+If the `py` launcher is unavailable, use `python -m venv .venv` instead. If PowerShell blocks environment activation, run the commands with `.\.venv\Scripts\python.exe -m ...` directly. No API keys or hosted model are needed.
 
 ## Run locally
 
 Run the API in one terminal:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn veil.api:app --reload --host 127.0.0.1
+python -m uvicorn veil.api:app --reload --host 127.0.0.1
 ```
 
 The API health check is `http://127.0.0.1:8000/health`. The local simulated tool endpoint is `POST http://127.0.0.1:8000/tool-call` with JSON such as:
@@ -60,15 +53,25 @@ The API health check is `http://127.0.0.1:8000/health`. The local simulated tool
 Run the interactive demo in another terminal:
 
 ```powershell
-.\.venv\Scripts\python.exe -m streamlit run veil/demo.py --server.address 127.0.0.1
+python -m streamlit run veil/demo.py --server.address 127.0.0.1
 ```
 
 Run automated checks and the synthetic benchmark:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m veil.evaluation
+python -m pytest -q
+python -m veil.evaluation
 ```
+
+## Two-minute judging demo
+
+1. Open the **Helpdesk ticket story** tab and read the made-up student request. Point out that the ticket number is the lookup key; the contact details are not needed by the helpdesk simulation.
+2. Click **Run ticket demo**. The four-step story shows the agent request crossing Veil, the helpdesk lookup, and the restored reply. The result reports how many details were detected and confirms zero originals reached the tool.
+3. Open **Show the proof and technical details**. Compare the agent's request with the exact payload received by the helpdesk. The helpdesk sees temporary labels for the name, email, and phone, while the ticket number remains available to find the record. Show the tokenized tool reply and the restored reply returned to the agent.
+4. Click **Show blocked request example**. Explain that this teaching path intentionally simulates a first-scan miss; the outgoing verifier catches the remaining email and blocks the helpdesk call. It does not contact a real service.
+5. If time permits, open **PII playground**, run **Run sample tests**, and show the synthetic benchmark scorecard and its limitations.
+
+All demo records are fictional and stored in the local application process. The ticket agent and helpdesk are deterministic simulations, not a hosted AI agent or real campus system.
 
 ## Architecture
 
