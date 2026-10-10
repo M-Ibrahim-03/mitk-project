@@ -1,6 +1,7 @@
 from veil.demo_agent import AgentRequest, RequesterDetails
 from veil.demo_flow import run_ticket_demo
 from types import SimpleNamespace
+from httpx import ConnectError
 
 
 class RecordingModels:
@@ -152,9 +153,108 @@ def test_gemini_flow_only_sends_protected_prompt_and_tool_result_then_restores_a
     assert original_email not in repr(protected_context.artifact)
     assert protected_context.artifact["user_message"] == client.models.calls[0]["contents"]
     assert protected_context.artifact["tool_result"] == run.result.tool_response
-    assert run.agent_answer == f"Handled request for {original_email}."
+    assert run.agent_answer == (
+        f"Handled request for {original_email}. "
+        f"Contact details: Email: {original_email}."
+    )
     assert run.agent_mode == "gemini"
     assert next(event for event in run.events if event.stage == "agent_model_answer").artifact.startswith("Handled request for [[EMAIL:")
+
+
+def test_gemini_answer_restores_detected_contact_details_returned_by_the_tool() -> None:
+    name = "Jordan Demo"
+    email = "jordan@example.test"
+    phone = "+91 00000 00000"
+    bank_account = "123456789012"
+    message = (
+        "Please check ticket TICKET-DEMO-1042. My name is Jordan Demo, "
+        "my email is jordan@example.test, and my phone is +91 00000 00000. "
+        "Bank account: 123456789012. Tell me its status and next update."
+    )
+    client = RecordingGeminiClient(message)
+
+    run = run_ticket_demo(
+        request=AgentRequest(message),
+        agent_mode="gemini",
+        gemini_client=client,
+    )
+
+    assert run.result.audit.status == "allowed"
+    protected_requester = run.result.tool_response["requester"]
+    restored_requester = run.result.restored_response["requester"]
+    assert set(protected_requester) == {"name", "email", "phone"}
+    assert all(value.startswith("[[") for value in protected_requester.values())
+    assert restored_requester == {"name": name, "email": email, "phone": phone}
+    assert all(original not in repr(run.tool_payload) for original in (name, email, phone, bank_account))
+    assert all(original not in repr(run.result.tool_response) for original in (name, email, phone, bank_account))
+    assert all(original not in call["contents"] for call in client.models.calls for original in (name, email, phone, bank_account))
+    assert all(original in run.agent_answer for original in (name, email, phone))
+    assert bank_account not in run.agent_answer
+
+
+def test_gemini_connection_failure_uses_local_fallback_for_the_same_run() -> None:
+    class OfflineModels:
+        calls = 0
+
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            raise ConnectError("synthetic network outage")
+
+    client = SimpleNamespace(models=OfflineModels())
+    request = make_request()
+
+    run = run_ticket_demo(request=request, agent_mode="gemini", gemini_client=client)
+
+    assert run.result.audit.status == "allowed"
+    assert run.result.audit.egress_verified is True
+    assert run.tool_payload == run.result.sanitized_payload
+    assert all(value not in repr(run.tool_payload) for value in (
+        "Riley Sample", "riley@example.test", "111-222-3333"
+    ))
+    assert run.result.restored_response["requester"] == request.requester.to_dict()
+    assert "Riley Sample" in run.agent_answer
+    assert "riley@example.test" in run.agent_answer
+    assert client.models.calls == 1
+    fallback = next(event for event in run.events if event.stage == "agent_fallback")
+    assert fallback.status == "complete"
+    assert fallback.artifact == {
+        "failed_at": "tool_proposal",
+        "fallback_agent": "deterministic",
+    }
+    assert all(event.run_id == run.run_id for event in run.events)
+
+
+def test_gemini_final_answer_connection_failure_does_not_repeat_tool_call() -> None:
+    class FinalAnswerOfflineModels:
+        calls = 0
+
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                protected = kwargs["contents"]
+                return SimpleNamespace(function_calls=[SimpleNamespace(
+                    name="lookup_helpdesk_ticket",
+                    args={
+                        "ticket_id": "TICKET-DEMO-1042",
+                        "user_message": protected,
+                        "question": "status and next update",
+                    },
+                )])
+            raise ConnectError("synthetic network outage")
+
+    client = SimpleNamespace(models=FinalAnswerOfflineModels())
+    run = run_ticket_demo(request=make_request(), agent_mode="gemini", gemini_client=client)
+
+    assert run.result.audit.status == "allowed"
+    assert run.result.tool_response is not None
+    assert run.agent_answer is not None and "Riley Sample" in run.agent_answer
+    assert client.models.calls == 2
+    assert sum(event.stage == "helpdesk" and event.status == "complete" for event in run.events) == 1
+    fallback = next(event for event in run.events if event.stage == "agent_fallback")
+    assert fallback.artifact == {
+        "failed_at": "final_answer",
+        "fallback_agent": "deterministic",
+    }
 
 
 def test_gemini_flow_rejects_fault_injection_before_any_model_request() -> None:

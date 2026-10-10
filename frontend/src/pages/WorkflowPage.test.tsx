@@ -226,6 +226,36 @@ describe("live workflow visualizer", () => {
     expect(screen.getByText(/restores only known tokens locally/i)).toBeInTheDocument();
   });
 
+  it("shows the local fallback as a successful Gemini-mode workflow", async () => {
+    vi.mocked(getRun).mockResolvedValue({
+      ...snapshot,
+      agent_mode: "gemini",
+      events: [
+        ...snapshot.events,
+        {
+          event_id: 8,
+          run_id: "run-demo-live",
+          stage: "agent_fallback",
+          status: "complete",
+          message: "Gemini could not complete the request. The deterministic local agent is continuing this run.",
+          artifact: { failed_at: "tool_proposal", fallback_agent: "deterministic" },
+        },
+      ],
+      event_count: 9,
+    });
+
+    render(
+      <MemoryRouter>
+        <WorkflowPage runId="run-demo-live" />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/local fallback used/i, {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText("Deterministic fallback · offline", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Riley Sample, your request is received\./, {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows a failed Gemini planning event on the run and marks its node failed", async () => {
     const failed: WorkflowSnapshot = {
       ...snapshot,

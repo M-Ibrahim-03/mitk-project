@@ -31,7 +31,7 @@ If `py` is unavailable, install Python 3.12 and use `python -m venv .venv`. If t
 
 ### Optional Gemini mode
 
-After installing requirements, copy `.env.example` to `.env`, set `VEIL_AGENT_MODE=gemini`, and set `GEMINI_API_KEY` in that ignored local file. The backend loads the key; the browser never receives it. Gemini mode sends locally tokenized synthetic prompts to Google's hosted API. Never enter real personal or confidential data; revoke any key that is exposed after the demo.
+After installing requirements, copy `.env.example` to `.env`, set `VEIL_AGENT_MODE=gemini`, and set `GEMINI_API_KEY` in that ignored local file. The backend loads the key; the browser never receives it. Gemini mode sends locally tokenized synthetic prompts to Google's hosted API. If the provider is unavailable, the key is rejected, the quota is exhausted, or the key is missing, that run continues with a clearly labeled deterministic local fallback. Never enter real personal or confidential data; revoke any key that is exposed after the demo.
 
 ## Run the main React demo
 

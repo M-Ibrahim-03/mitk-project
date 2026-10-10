@@ -151,6 +151,7 @@ function RunEvidence({ events, snapshot }: { events: WorkflowEvent[]; snapshot: 
   const audit = snapshot?.audit;
   const egress = event("egress_gate");
   const agentAnswer = event("agent_response")?.artifact;
+  const fallback = event("agent_fallback");
 
   return (
     <ol aria-label="Workflow steps" className="workflow-steps">
@@ -160,8 +161,9 @@ function RunEvidence({ events, snapshot }: { events: WorkflowEvent[]; snapshot: 
       </RunNode>
 
       <RunNode index={2} label="AI agent" type="agent" status={nodeStatus(events, nodeDefinitions[1].watches)} connectsToNext connectorLabel="TOOL CALL">
-        <p className="node-explanation">{snapshot?.agent_mode === "gemini" ? "Gemini sees Veil's tokenized prompt and proposes a call; Veil still validates it." : "The offline agent decides which helpdesk action fits."}</p>
-        {snapshot?.agent_mode && <div className="tool-choice"><span>AGENT MODE</span><strong>{snapshot.agent_mode === "gemini" ? "Gemini · networked" : "Deterministic · offline"}</strong></div>}
+        <p className="node-explanation">{fallback ? "Gemini was unavailable, so the deterministic local agent continued this same run." : snapshot?.agent_mode === "gemini" ? "Gemini sees Veil's tokenized prompt and proposes a call; Veil still validates it." : "The offline agent decides which helpdesk action fits."}</p>
+        {snapshot?.agent_mode && <div className="tool-choice"><span>AGENT MODE</span><strong>{fallback ? "Deterministic fallback · offline" : snapshot.agent_mode === "gemini" ? "Gemini · networked" : "Deterministic · offline"}</strong></div>}
+        {fallback && <div className="fallback-notice" role="status"><strong>LOCAL FALLBACK USED</strong><span>{fallback.message}</span></div>}
         {typeof protectedPrompt === "string" && <Evidence label="TOKENIZED PROMPT SENT TO GEMINI" value={protectedPrompt} tone="protected" />}
         {agentArtifact && <div className="tool-choice"><span>TOOL SELECTED</span><strong>{String(agentArtifact.tool_name)}</strong></div>}
         <Evidence label="AGENT'S PREPARED REQUEST" value={agentArtifact?.payload} />
@@ -197,7 +199,7 @@ function RunEvidence({ events, snapshot }: { events: WorkflowEvent[]; snapshot: 
       </RunNode>
 
       <RunNode index={6} label="Agent answer" type="agent" status={nodeStatus(events, nodeDefinitions[5].watches)}>
-        <p className="node-explanation">{snapshot?.agent_mode === "gemini" ? "Veil restores only known tokens locally after Gemini drafts its answer." : "The offline agent answers using Veil's restored response."}</p>
+        <p className="node-explanation">{fallback ? "The deterministic local agent answered from Veil's restored response." : snapshot?.agent_mode === "gemini" ? "Veil restores only known tokens locally after Gemini drafts its answer." : "The offline agent answers using Veil's restored response."}</p>
         {typeof modelAnswer === "string" && <Evidence label="TOKENIZED MODEL ANSWER · BEFORE LOCAL RESTORATION" value={modelAnswer} tone="tokenized" />}
         {typeof agentAnswer === "string" ? (
           <div className="agent-answer-evidence">{agentAnswer}</div>
@@ -277,6 +279,7 @@ export function WorkflowPage({ runId }: WorkflowPageProps) {
 
   const visibleEvents = events.slice(0, visibleEventCount);
   const visualStatus = status === "complete" && visibleEventCount < events.length ? "replaying" : status;
+  const fallbackUsed = events.some((event) => event.stage === "agent_fallback" && event.status === "complete");
   const failedEvent = [...events].reverse().find((event) => event.status === "failed");
   const failureMessage = error ?? failedEvent?.message;
 
@@ -316,7 +319,7 @@ export function WorkflowPage({ runId }: WorkflowPageProps) {
           <p>Evidence comes from this run's actual Veil events and the payload captured by the local helpdesk.</p>
         </div>
       </section>
-      <footer className="page-footer">Synthetic demo data · {snapshot?.agent_mode === "gemini" ? "Gemini agent · networked" : "Offline deterministic agent"} · Offline simulated helpdesk</footer>
+      <footer className="page-footer">Synthetic demo data · {fallbackUsed ? "Gemini selected · deterministic fallback used" : snapshot?.agent_mode === "gemini" ? "Gemini agent · networked" : "Offline deterministic agent"} · Offline simulated helpdesk</footer>
     </main>
   );
 }

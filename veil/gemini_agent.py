@@ -23,14 +23,39 @@ class AgentProtocolError(RuntimeError):
     """Gemini returned a response outside Veil's supported agent protocol."""
 
 
+class AgentUnavailableError(RuntimeError):
+    """A provider/network failure prevented Gemini from completing a request."""
+
+
 def resolve_agent_mode() -> str:
     """Resolve an explicit local mode without exposing or logging credentials."""
     mode = os.getenv("VEIL_AGENT_MODE", "deterministic").strip().lower()
     if mode not in {"deterministic", "gemini"}:
         raise AgentConfigurationError("VEIL_AGENT_MODE must be deterministic or gemini")
-    if mode == "gemini" and not os.getenv("GEMINI_API_KEY", "").strip():
-        raise AgentConfigurationError("GEMINI_API_KEY is required for Gemini mode")
     return mode
+
+
+def _raise_request_failure(error: Exception, *, stage: str) -> None:
+    """Classify availability failures without exposing provider error details."""
+    try:
+        from google.genai.errors import APIError
+        is_api_error = isinstance(error, APIError)
+    except ImportError:
+        is_api_error = False
+    try:
+        import httpx
+        transport_errors = (httpx.TransportError,)
+    except ImportError:
+        transport_errors = ()
+    availability_errors = (TimeoutError, ConnectionError, OSError, *transport_errors)
+    if isinstance(error, availability_errors) or is_api_error:
+        raise AgentUnavailableError(
+            f"Gemini provider unavailable during {stage} ({type(error).__name__})"
+        ) from error
+    # Do not include provider exception text: it may contain prompt content.
+    raise AgentProtocolError(
+        f"Gemini request failed ({type(error).__name__})"
+    ) from error
 
 
 def create_gemini_client() -> Any:
@@ -103,17 +128,13 @@ class GeminiAgent:
                         }
                     },
                     "automatic_function_calling": {"disable": True},
-                    "temperature": 0,
                     "max_output_tokens": 512,
                 },
             )
         except AgentProtocolError:
             raise
         except Exception as error:
-            # Do not include provider exception text: it may contain prompt content.
-            raise AgentProtocolError(
-                f"Gemini request failed ({type(error).__name__})"
-            ) from error
+            _raise_request_failure(error, stage="tool proposal")
 
         calls = getattr(response, "function_calls", None) or []
         if len(calls) != 1:
@@ -154,14 +175,11 @@ class GeminiAgent:
                         "Answer the user's request using only this helpdesk result. "
                         "Preserve Veil tokens exactly; do not infer or invent facts."
                     ),
-                    "temperature": 0.2,
                     "max_output_tokens": 512,
                 },
             )
         except Exception as error:
-            raise AgentProtocolError(
-                f"Gemini final-answer request failed ({type(error).__name__})"
-            ) from error
+            _raise_request_failure(error, stage="final answer")
         answer = getattr(response, "text", None)
         if not isinstance(answer, str) or not answer.strip() or len(answer) > _MAX_TEXT_LENGTH:
             raise AgentProtocolError("Gemini returned an invalid final answer")

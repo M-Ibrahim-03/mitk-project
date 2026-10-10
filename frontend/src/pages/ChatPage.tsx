@@ -12,6 +12,7 @@ export function ChatPage() {
   const [agentMode, setAgentMode] = useState<"deterministic" | "gemini">("deterministic");
   const [runStatus, setRunStatus] = useState<RunStatus | "idle">("idle");
   const [answer, setAnswer] = useState<string | null>(null);
+  const [usedFallback, setUsedFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eventCount, setEventCount] = useState(0);
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -22,6 +23,7 @@ export function ChatPage() {
     event.preventDefault();
     setRunStatus("queued");
     setAnswer(null);
+    setUsedFallback(false);
     setError(null);
     setRunId(null);
     setEventCount(0);
@@ -35,6 +37,9 @@ export function ChatPage() {
         created.run_id,
         (workflowEvent) => {
           setEventCount((count) => Math.max(count, workflowEvent.event_id + 1));
+          if (workflowEvent.stage === "agent_fallback" && workflowEvent.status === "complete") {
+            setUsedFallback(true);
+          }
           if (workflowEvent.stage === "agent_response" && typeof workflowEvent.artifact === "string") {
             setAnswer(workflowEvent.artifact);
           }
@@ -43,6 +48,9 @@ export function ChatPage() {
           try {
             const snapshot = await getRun(created.run_id);
             setAnswer(snapshot.agent_answer);
+            setUsedFallback(snapshot.events.some(
+              (workflowEvent) => workflowEvent.stage === "agent_fallback" && workflowEvent.status === "complete",
+            ));
             setRunStatus(status);
             if (status === "failed") {
               const failure = snapshot.events.find((workflowEvent) => workflowEvent.status === "failed");
@@ -70,6 +78,7 @@ export function ChatPage() {
     setRunId(null);
     setRunStatus("idle");
     setAnswer(null);
+    setUsedFallback(false);
     setError(null);
     setEventCount(0);
   }
@@ -154,7 +163,8 @@ export function ChatPage() {
         )}
         {answer && (
           <section aria-label="Agent answer" aria-live="polite" className="answer-card">
-            <span className="eyebrow">ANSWER FROM {agentMode === "gemini" ? "GEMINI" : "OFFLINE LOCAL AGENT"}</span>
+            <span className="eyebrow">ANSWER FROM {usedFallback ? "OFFLINE FALLBACK" : agentMode === "gemini" ? "GEMINI" : "OFFLINE LOCAL AGENT"}</span>
+            {usedFallback && <p className="fallback-notice" role="status">Gemini could not complete this request. The deterministic local agent returned the answer from the same protected tool workflow.</p>}
             <p>{answer}</p>
             {runId && (
               <Link className="workflow-link" to={`/runs/${encodeURIComponent(runId)}`}>

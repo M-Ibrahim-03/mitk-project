@@ -87,6 +87,52 @@ describe("chat-to-agent interaction", () => {
     );
   });
 
+  it("labels a completed Gemini run that used the deterministic fallback", async () => {
+    vi.mocked(createRun).mockResolvedValueOnce({
+      run_id: "chat-run-1",
+      status: "queued",
+      agent_mode: "gemini",
+    });
+    vi.mocked(getRun).mockResolvedValueOnce({
+      ...completedRun,
+      agent_mode: "gemini",
+      events: [{
+        event_id: 0,
+        run_id: "chat-run-1",
+        stage: "agent_fallback",
+        status: "complete",
+        message: "Gemini could not complete the request. The deterministic local agent is continuing this run.",
+        artifact: { failed_at: "tool_proposal", fallback_agent: "deterministic" },
+      }],
+    });
+    vi.mocked(subscribeToRun).mockImplementationOnce((_runId, onEvent, onComplete) => {
+      onEvent({
+        event_id: 0,
+        run_id: "chat-run-1",
+        stage: "agent_fallback",
+        status: "complete",
+        message: "Gemini could not complete the request. The deterministic local agent is continuing this run.",
+        artifact: { failed_at: "tool_proposal", fallback_agent: "deterministic" },
+      });
+      onComplete("complete");
+      return vi.fn();
+    });
+    render(
+      <MemoryRouter>
+        <ChatPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: /your message/i }), {
+      target: { value: "Please check ticket TICKET-DEMO-1042." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect(await screen.findByText(/Gemini could not complete this request/i)).toBeInTheDocument();
+    expect(screen.getByText(/OFFLINE FALLBACK/i)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows ticket validation errors instead of silently re-enabling send", async () => {
     vi.mocked(createRun).mockRejectedValueOnce(
       new Error("Only the local synthetic ticket TICKET-DEMO-1042 is available."),

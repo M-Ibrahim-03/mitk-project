@@ -5,6 +5,7 @@ import pytest
 from veil.gemini_agent import (
     AgentConfigurationError,
     AgentProtocolError,
+    AgentUnavailableError,
     GeminiAgent,
     create_gemini_client,
     resolve_agent_mode,
@@ -48,6 +49,7 @@ def test_gemini_agent_returns_validated_tool_proposal_without_executing_it() -> 
     request = client.models.calls[0]
     assert request["contents"] == protected_message
     assert "riley@example.test" not in str(request)
+    assert "temperature" not in request["config"]
     assert request["config"]["automatic_function_calling"]["disable"] is True
     assert request["config"]["tool_config"]["function_calling_config"][
         "allowed_function_names"
@@ -125,6 +127,20 @@ def test_gemini_agent_sanitizes_provider_exception_details() -> None:
         GeminiAgent(client).prepare_tool_call("Original tokenized request")
 
 
+@pytest.mark.parametrize("status_code", [401, 429, 503])
+def test_gemini_provider_api_errors_are_classified_as_unavailable(status_code: int) -> None:
+    from google.genai.errors import APIError
+
+    class RaisingModels:
+        def generate_content(self, **kwargs):
+            raise APIError(status_code, {"error": {"message": "synthetic provider failure"}})
+
+    with pytest.raises(AgentUnavailableError, match="Gemini provider unavailable"):
+        GeminiAgent(SimpleNamespace(models=RaisingModels())).prepare_tool_call(
+            "Check ticket TICKET-DEMO-1042."
+        )
+
+
 def test_gemini_agent_writes_final_answer_from_protected_tool_result() -> None:
     protected_message = "Check TICKET-DEMO-1042. Contact me at [[EMAIL:V0123456789]]."
     protected_tool_result = {"ticket": {"ticket_id": "TICKET-DEMO-1042", "status": "In progress"}}
@@ -142,16 +158,18 @@ def test_gemini_agent_writes_final_answer_from_protected_tool_result() -> None:
     assert "riley@example.test" not in request["contents"]
     assert "[[EMAIL:V0123456789]]" in request["contents"]
     assert request["config"].get("tools") is None
+    assert "temperature" not in request["config"]
 
 
-def test_agent_mode_requires_server_key_only_when_gemini_is_selected(monkeypatch) -> None:
+def test_agent_mode_allows_missing_key_so_a_run_can_fallback_locally(monkeypatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("VEIL_AGENT_MODE", "deterministic")
     assert resolve_agent_mode() == "deterministic"
 
     monkeypatch.setenv("VEIL_AGENT_MODE", "gemini")
+    assert resolve_agent_mode() == "gemini"
     with pytest.raises(AgentConfigurationError):
-        resolve_agent_mode()
+        create_gemini_client()
 
     monkeypatch.setenv("GEMINI_API_KEY", "synthetic-test-key")
     assert resolve_agent_mode() == "gemini"

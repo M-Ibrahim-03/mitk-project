@@ -16,17 +16,26 @@ def api_tests_default_to_deterministic_mode(monkeypatch) -> None:
     monkeypatch.setenv("VEIL_AGENT_MODE", "deterministic")
 
 
-def test_gemini_mode_rejects_missing_server_key_before_queuing(monkeypatch) -> None:
+def test_gemini_mode_without_server_key_queues_run_for_local_fallback(monkeypatch) -> None:
     monkeypatch.setenv("VEIL_AGENT_MODE", "gemini")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    try:
-        create_workflow_run(DemoRunRequest(message="Synthetic status request."))
-    except HTTPException as error:
-        assert error.status_code == 503
-        assert "configuration" in error.detail.lower()
-    else:
-        raise AssertionError("Gemini mode without a server key must not queue a run")
+    created = create_workflow_run(
+        DemoRunRequest(message="Check ticket TICKET-DEMO-1042 for its synthetic status.")
+    )
+    assert created["agent_mode"] == "gemini"
+    assert created["status"] == "queued"
+    deadline = monotonic() + 3
+    snapshot = None
+    while monotonic() < deadline:
+        snapshot = read_workflow_run(created["run_id"])
+        if snapshot["status"] in {"complete", "blocked", "failed"}:
+            break
+        sleep(0.01)
+    assert snapshot is not None
+    assert snapshot["status"] == "complete"
+    assert any(event["stage"] == "agent_fallback" for event in snapshot["events"])
+    assert snapshot["agent_answer"]
 
 
 def test_api_rejects_ticket_not_in_local_helpdesk_before_queuing(monkeypatch) -> None:

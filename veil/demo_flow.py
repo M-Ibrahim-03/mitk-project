@@ -49,6 +49,48 @@ class WorkflowEvent:
 WorkflowEventCallback = Callable[[WorkflowEvent], None]
 
 
+def _requester_from_message(
+    message: str,
+    detector: PIIDetector,
+    provided: RequesterDetails | None,
+) -> RequesterDetails | None:
+    """Use only selected, locally detected contact fields for the helpdesk record."""
+    values = provided.to_dict() if provided is not None else {}
+    field_types = {
+        "PERSON": "name",
+        "EMAIL": "email",
+        "PHONE_NUMBER": "phone",
+    }
+    for finding in detector.detect(message):
+        field = field_types.get(finding.entity_type)
+        if field is not None and not values.get(field):
+            values[field] = message[finding.start:finding.end]
+    if not values:
+        return None
+    return RequesterDetails(
+        name=values.get("name", ""),
+        email=values.get("email", ""),
+        phone=values.get("phone", ""),
+    )
+
+
+def _append_restored_contact_details(answer: str, response: object) -> str:
+    if not isinstance(response, dict):
+        return answer
+    requester = response.get("requester")
+    if not isinstance(requester, dict):
+        return answer
+    labels = (("name", "Name"), ("email", "Email"), ("phone", "Phone"))
+    details = [
+        f"{label}: {requester[field]}"
+        for field, label in labels
+        if isinstance(requester.get(field), str) and requester[field]
+    ]
+    if not details:
+        return answer
+    return f"{answer.rstrip()} Contact details: {', '.join(details)}."
+
+
 @dataclass(frozen=True)
 class TicketDemoRun:
     run_id: str
@@ -112,6 +154,12 @@ def run_ticket_demo(
     )
     gateway = VeilGateway(detector=detector, simulated_tool=helpdesk)
     task = gateway.start_task()
+    requester = (
+        request.requester
+        if show_blocked_path or agent_mode != "gemini"
+        else _requester_from_message(request.message, detector, request.requester)
+    )
+    effective_request = AgentRequest(request.message, requester)
 
     protected_message = request.message
     if agent_mode == "gemini":
@@ -154,15 +202,40 @@ def run_ticket_demo(
 
     try:
         emit("agent_planning", "active", "The selected agent is choosing a helpdesk action.")
+        used_fallback = False
         if agent_mode == "gemini":
-            from veil.gemini_agent import GeminiAgent, create_gemini_client
+            from veil.gemini_agent import (
+                AgentConfigurationError,
+                AgentUnavailableError,
+                GeminiAgent,
+                create_gemini_client,
+            )
 
-            selected_agent = GeminiAgent(gemini_client or create_gemini_client())
-            agent_call = selected_agent.prepare_tool_call(protected_message)
+            try:
+                selected_agent = GeminiAgent(gemini_client or create_gemini_client())
+                agent_call = selected_agent.prepare_tool_call(protected_message)
+            except (AgentUnavailableError, AgentConfigurationError):
+                used_fallback = True
+                selected_agent = agent
+                agent_call = agent.build_ticket_lookup_call(effective_request)
+                emit(
+                    "agent_fallback",
+                    "complete",
+                    "Gemini could not complete the request. The deterministic local agent is continuing this run.",
+                    {"failed_at": "tool_proposal", "fallback_agent": "deterministic"},
+                )
         else:
             selected_agent = agent
-            agent_call = agent.build_ticket_lookup_call(request)
-        emit("agent_planning", "complete", f"The {agent_mode} agent selected a helpdesk action.")
+            agent_call = agent.build_ticket_lookup_call(effective_request)
+        if requester is not None:
+            protected_requester = sanitize_payload(
+                requester.to_dict(), detector, task.vault
+            )
+            protected_payload = dict(agent_call.payload)
+            protected_payload["requester"] = protected_requester.payload
+            agent_call = AgentToolCall(agent_call.tool_name, protected_payload)
+        planning_source = "deterministic fallback" if used_fallback else agent_mode
+        emit("agent_planning", "complete", f"The {planning_source} agent selected a helpdesk action.")
         emit(
             "tool_call_prepared",
             "complete",
@@ -176,7 +249,7 @@ def run_ticket_demo(
             on_progress=report_gateway_event,
         )
         tool_payload = helpdesk.received[0].payload if helpdesk.received else None
-        if result.audit.status == "allowed" and agent_mode == "gemini":
+        if result.audit.status == "allowed" and agent_mode == "gemini" and not used_fallback:
             protected_result = sanitize_payload(result.tool_response, detector, task.vault)
             verify_egress(protected_result.payload, detector, task.vault)
             emit(
@@ -188,19 +261,34 @@ def run_ticket_demo(
                     "tool_result": protected_result.payload,
                 },
             )
-            answer = selected_agent.create_final_answer(
-                protected_message,
-                agent_call.tool_name,
-                result.sanitized_payload,
-                protected_result.payload,
-            )
-            emit(
-                "agent_model_answer",
-                "complete",
-                "Gemini drafted an answer using protected context only.",
-                answer,
-            )
-            agent_answer = task.vault.restore_text(answer)
+            from veil.gemini_agent import AgentUnavailableError
+
+            try:
+                answer = selected_agent.create_final_answer(
+                    protected_message,
+                    agent_call.tool_name,
+                    result.sanitized_payload,
+                    protected_result.payload,
+                )
+            except AgentUnavailableError:
+                used_fallback = True
+                emit(
+                    "agent_fallback",
+                    "complete",
+                    "Gemini could not complete the final answer. The deterministic local agent is answering from the same tool result.",
+                    {"failed_at": "final_answer", "fallback_agent": "deterministic"},
+                )
+                agent_answer = agent.format_answer(result.restored_response)
+            else:
+                emit(
+                    "agent_model_answer",
+                    "complete",
+                    "Gemini drafted an answer using protected context only.",
+                    answer,
+                )
+                agent_answer = _append_restored_contact_details(
+                    task.vault.restore_text(answer), result.restored_response
+                )
         elif result.restored_response is not None:
             agent_answer = agent.format_answer(result.restored_response)
         else:
@@ -209,10 +297,11 @@ def run_ticket_demo(
         gateway.close_task(task)
 
     if agent_answer is not None:
+        answer_source = "the deterministic fallback" if used_fallback else "the selected agent"
         emit(
             "agent_response",
             "complete",
-            "The selected agent answered using Veil's trusted context.",
+            f"{answer_source.capitalize()} answered using Veil's trusted context.",
             agent_answer,
         )
 

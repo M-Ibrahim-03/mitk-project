@@ -106,8 +106,8 @@ def test_structured_payload_example_keeps_ticket_intake_separate_and_shows_recei
         "EMAIL", "PHONE_NUMBER", "PERSON", "STUDENT_ID", "AADHAAR",
         "BANK_ACCOUNT", "UPI_ID", "PAYMENT_CARD", "PAN", "IFSC", "IBAN",
     }
+    assert any(item.value == "General structured payload example" for item in app_test.header)
     visible = "\n".join(item.value for item in app_test.markdown)
-    assert "General structured payload example" in visible
     assert "Exact payload received by the simulated tool" in visible
-    assert "Detected types" in visible
+    assert any("Detected types" in item.value for item in app_test.caption)
     assert "Run workflow" in [button.label for button in app_test.button]
